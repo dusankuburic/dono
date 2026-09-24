@@ -1,0 +1,134 @@
+@page "/"
+@inject IBuildingService BuildingService
+@inject IBuildingSelectionService BuildingSelection
+
+<PageTitle>Dashboard</PageTitle>
+
+<MudText H3="true" Class="mb-4">Dashboard</MudText>
+
+@if (_noBuildings)
+{
+    <MudAlert Severity="Severity.Info" Class="mt-4">
+        No buildings yet. <MudLink Href="/buildings/new">Create the first building</MudLink> to get started.
+    </MudAlert>
+}
+else if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Warning" Class="mt-4">
+        Could not load building data (@_loadError). Start the API and Orleans silo, then reload.
+    </MudAlert>
+}
+else
+{
+    <MudGrid>
+        <MudItem xs="12" md="6" lg="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Row="true" Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.Apartment" Color="Color.Primary" Size="Size.Large" />
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Buildings</MudText>
+                        <MudText H5="true">@_buildingCount</MudText>
+                    </MudStack>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6" lg="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Row="true" Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.People" Color="Color.Info" Size="Size.Large" />
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Residents</MudText>
+                        <MudText H5="true">@_residentCount</MudText>
+                    </MudStack>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6" lg="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Row="true" Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.Build" Color="Color.Warning" Size="Size.Large" />
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Open Work Orders</MudText>
+                        <MudText H5="true">@_openWorkOrders</MudText>
+                    </MudStack>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6" lg="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Row="true" Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.VpnKey" Color="Color.Secondary" Size="Size.Large" />
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Keys Out</MudText>
+                        <MudText H5="true">@_keysOut</MudText>
+                    </MudStack>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+<MudText H5="true" Class="mt-6 mb-4">Quick Actions</MudText>
+
+<MudGrid>
+    <MudItem xs="12" sm="6" md="3">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Href="/buildings/new" FullWidth="true">
+            New Building
+        </MudButton>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Build" Href="/workorders" FullWidth="true">
+            Work Orders
+        </MudButton>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudButton Variant="Variant.Filled" Color="Color.Info" StartIcon="@Icons.Material.Filled.VpnKey" Href="/keys" FullWidth="true">
+            Manage Keys
+        </MudButton>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.AttachMoney" Href="/finance" FullWidth="true">
+            View Finances
+        </MudButton>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private int _buildingCount;
+    private int _residentCount;
+    private int _openWorkOrders;
+    private int _keysOut;
+    private bool _noBuildings;
+    private string? _loadError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var buildings = await BuildingService.GetBuildingsAsync();
+            _buildingCount = buildings.Count;
+
+            var selectedId = await BuildingSelection.GetSelectedBuildingIdAsync();
+            if (selectedId is null)
+            {
+                _noBuildings = true;
+                return;
+            }
+
+            var summary = await BuildingService.GetBuildingAsync(selectedId);
+            if (summary != null)
+            {
+                _residentCount = summary.ResidentCount;
+                _openWorkOrders = summary.OpenWorkOrders;
+                _keysOut = summary.KeysCheckedOut;
+            }
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+        }
+    }
+}

@@ -1,0 +1,72 @@
+@page "/login"
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Login</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraSmall" Class="mt-16">
+    <MudPaper Class="pa-6" Elevation="4">
+        <MudStack Spacing="4" AlignItems="AlignItems.Center">
+            <MudIcon Icon="@Icons.Material.Filled.Apartment" Size="Size.Large" Color="Color.Primary" />
+            <MudText H5="true" Align="Align.Center">Building Manager</MudText>
+
+            <MudTextField @bind-Value="_email" Label="Email" Required="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Email"
+                          ImmediateError="true" ErrorText="Email is required"
+                          Error="@(_showErrors && string.IsNullOrWhiteSpace(_email))" />
+            <MudTextField @bind-Value="_password" Label="Password" InputType="InputType.Password" Required="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Lock"
+                          ImmediateError="true" ErrorText="Password is required"
+                          Error="@(_showErrors && string.IsNullOrWhiteSpace(_password))" />
+
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+            }
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Large"
+                       OnClick="SubmitLogin" Disabled="@_busy">
+                @(_busy ? "Signing in..." : "Sign in")
+            </MudButton>
+
+            <MudText Typo="Typo.body2">
+                No account? <MudLink Href="/register">Register</MudLink>
+            </MudText>
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string? _error;
+    private bool _busy;
+    private bool _showErrors;
+
+    private async Task SubmitLogin()
+    {
+        _showErrors = true;
+        if (string.IsNullOrWhiteSpace(_email) || string.IsNullOrWhiteSpace(_password))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await AuthService.LoginAsync(_email.Trim(), _password);
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message.Contains("401")
+                ? "Email or password is incorrect."
+                : $"Could not sign in: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

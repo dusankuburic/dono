@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>BuildingManager.Orleans.Grains</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BuildingManager.Orleans.Interfaces\BuildingManager.Orleans.Interfaces.csproj" />
+    <ProjectReference Include="..\BuildingManager.Core\BuildingManager.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Orleans.Sdk" />
+    <PackageReference Include="Microsoft.Orleans.Persistence.AdoNet" />
+    <PackageReference Include="Microsoft.Orleans.Reminders" />
+  </ItemGroup>
+
+</Project>

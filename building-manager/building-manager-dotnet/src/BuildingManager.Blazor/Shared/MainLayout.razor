@@ -1,0 +1,119 @@
+@inherits LayoutComponentBase
+@inject IBuildingService BuildingService
+@inject IBuildingSelectionService BuildingSelection
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<MudThemeProvider @ref="_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@ToggleDrawer" />
+        <MudText H5="true" Class="ml-3">Building Manager</MudText>
+
+        @if (_buildings.Count > 0)
+        {
+            <MudSelect T="string"
+                       Value="@_selectedBuildingId"
+                       ValueChanged="@OnBuildingChanged"
+                       Label="Building"
+                       Variant="Variant.Text"
+                       Dense="true"
+                       Class="ml-6"
+                       Style="max-width: 240px; padding-top: 4px;">
+                @foreach (var building in _buildings)
+                {
+                    <MudSelectItem Value="@building.Id">@building.Name</MudSelectItem>
+                }
+            </MudSelect>
+        }
+
+        <MudSpacer />
+
+        <AuthorizeView>
+            <Authorized>
+                <MudIcon Icon="@Icons.Material.Filled.AccountCircle" Class="mr-2" />
+                <MudText Typo="Typo.body2" Class="mr-2">@context.User.Identity?.Name</MudText>
+                <MudIconButton Icon="@Icons.Material.Filled.Logout" Color="Color.Inherit" Edge="Edge.End"
+                               OnClick="Logout" />
+            </Authorized>
+            <NotAuthorized>
+                <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Login"
+                           Href="/login">Sign in</MudButton>
+            </NotAuthorized>
+        </AuthorizeView>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <MudNavMenu>
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
+            <MudNavLink Href="/buildings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apartment">Buildings</MudNavLink>
+            <MudNavLink Href="/residents" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.People">Residents</MudNavLink>
+            <MudNavLink Href="/workorders" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Build">Work Orders</MudNavLink>
+            <MudNavLink Href="/keys" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.VpnKey">Keys</MudNavLink>
+            <MudNavLink Href="/finance" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.AttachMoney">Finance</MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
+
+    <MudMainContent Class="pt-16 px-4">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private MudThemeProvider? _mudThemeProvider;
+    private bool _isDarkMode;
+    private bool _drawerOpen = true;
+    private List<BuildingSummary> _buildings = new();
+    private string? _selectedBuildingId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _buildings = await BuildingService.GetBuildingsAsync();
+            _selectedBuildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+        }
+        catch
+        {
+            // The API is unreachable; the selector stays hidden and pages show
+            // their own error state.
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _mudThemeProvider != null)
+        {
+            _isDarkMode = await _mudThemeProvider.GetSystemPreference();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OnBuildingChanged(string? buildingId)
+    {
+        if (string.IsNullOrEmpty(buildingId) || buildingId == _selectedBuildingId)
+        {
+            return;
+        }
+
+        await BuildingSelection.SetSelectedBuildingIdAsync(buildingId);
+        // Pages cache data for the selected building; reload to re-query them.
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    }
+
+    private async Task Logout()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("login", forceLoad: true);
+    }
+
+    private void ToggleDrawer()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+}

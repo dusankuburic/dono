@@ -1,0 +1,72 @@
+@page "/buildings"
+@inject IBuildingService BuildingService
+@inject NavigationManager Navigation
+
+<PageTitle>Buildings</PageTitle>
+
+<MudText H3="true" Class="mb-4">Buildings</MudText>
+
+<MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NavigateToNewBuilding" Class="mb-4">
+    Add Building
+</MudButton>
+
+@if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@_loadError</MudAlert>
+}
+
+<MudTable Items="@_buildings" Hover="true" Stripable="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Address</MudTh>
+        <MudTh>Units</MudTh>
+        <MudTh>Residents</MudTh>
+        <MudTh>Open Work Orders</MudTh>
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name">@context.Name</MudTd>
+        <MudTd DataLabel="Address">@context.Street @context.StreetNumber, @context.City</MudTd>
+        <MudTd DataLabel="Units">@context.UnitCount</MudTd>
+        <MudTd DataLabel="Residents">@context.ResidentCount</MudTd>
+        <MudTd DataLabel="Open Work Orders">@context.OpenWorkOrders</MudTd>
+        <MudTd DataLabel="Actions">
+            <MudButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" OnClick="@(() => ViewBuilding(context.Id))" />
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent>
+        <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No buildings yet.</MudTd>
+    </NoRecordsContent>
+</MudTable>
+
+@code {
+    private List<BuildingSummary> _buildings = new();
+    private bool _loading = true;
+    private string? _loadError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _buildings = await BuildingService.GetBuildingsAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not load buildings: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void NavigateToNewBuilding()
+    {
+        Navigation.NavigateTo("/buildings/new");
+    }
+
+    private void ViewBuilding(string id)
+    {
+        Navigation.NavigateTo($"/buildings/{id}");
+    }
+}

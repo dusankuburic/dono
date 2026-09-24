@@ -1,0 +1,104 @@
+@page "/workorders"
+@inject IBuildingService BuildingService
+@inject IBuildingSelectionService BuildingSelection
+
+<PageTitle>Work Orders</PageTitle>
+
+<MudText H3="true" Class="mb-4">Work Orders</MudText>
+
+@if (_noBuildings)
+{
+    <MudAlert Severity="Severity.Info">
+        No buildings yet. <MudLink Href="/buildings/new">Create a building</MudLink> first.
+    </MudAlert>
+}
+else
+{
+    <MudButtonGroup Class="mb-4">
+        <MudButton Variant="@(CurrentStatus == null ? Variant.Filled : Variant.Outlined)" OnClick="@(() => SetStatus(null))">All</MudButton>
+        <MudButton Variant="@(CurrentStatus == WorkOrderStatus.New ? Variant.Filled : Variant.Outlined)" Color="Color.Warning" OnClick="@(() => SetStatus(WorkOrderStatus.New))">New</MudButton>
+        <MudButton Variant="@(CurrentStatus == WorkOrderStatus.InProgress ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => SetStatus(WorkOrderStatus.InProgress))">In Progress</MudButton>
+        <MudButton Variant="@(CurrentStatus == WorkOrderStatus.Completed ? Variant.Filled : Variant.Outlined)" Color="Color.Success" OnClick="@(() => SetStatus(WorkOrderStatus.Completed))">Completed</MudButton>
+    </MudButtonGroup>
+
+    <MudTable Items="@_workOrders" Hover="true" Breakpoint="Breakpoint.Sm">
+        <HeaderContent>
+            <MudTh>Reference</MudTh>
+            <MudTh>Title</MudTh>
+            <MudTh>Category</MudTh>
+            <MudTh>Priority</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Created</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Reference">@context.ReferenceNumber</MudTd>
+            <MudTd DataLabel="Title">@context.Title</MudTd>
+            <MudTd DataLabel="Category">@context.Category</MudTd>
+            <MudTd DataLabel="Priority">
+                <MudChip Color="@GetPriorityColor(context.Priority)" Size="Size.Small">@context.Priority</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip Color="@GetStatusColor(context.Status)" Size="Size.Small">@context.Status</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Created">@context.CreatedAt.ToString("yyyy-MM-dd")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No work orders match this filter.</MudTd>
+        </NoRecordsContent>
+    </MudTable>
+}
+
+@code {
+    private string? _buildingId;
+    private bool _noBuildings;
+    private List<WorkOrderInfo> _workOrders = new();
+    private WorkOrderStatus? CurrentStatus { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+        if (_buildingId is null)
+        {
+            _noBuildings = true;
+            return;
+        }
+
+        await LoadWorkOrders();
+    }
+
+    private async Task SetStatus(WorkOrderStatus? status)
+    {
+        CurrentStatus = status;
+        await LoadWorkOrders();
+    }
+
+    private async Task LoadWorkOrders()
+    {
+        if (_buildingId is null)
+        {
+            return;
+        }
+
+        var workOrders = await BuildingService.GetWorkOrdersAsync(_buildingId, CurrentStatus);
+        _workOrders = workOrders.ToList();
+    }
+
+    private Color GetPriorityColor(Priority priority) => priority switch
+    {
+        Priority.Low => Color.Info,
+        Priority.Normal => Color.Warning,
+        Priority.High => Color.Error,
+        Priority.Emergency => Color.Error,
+        _ => Color.Default
+    };
+
+    private Color GetStatusColor(WorkOrderStatus status) => status switch
+    {
+        WorkOrderStatus.New => Color.Warning,
+        WorkOrderStatus.Acknowledged => Color.Info,
+        WorkOrderStatus.InProgress => Color.Info,
+        WorkOrderStatus.Completed => Color.Success,
+        WorkOrderStatus.Cancelled => Color.Error,
+        _ => Color.Default
+    };
+}

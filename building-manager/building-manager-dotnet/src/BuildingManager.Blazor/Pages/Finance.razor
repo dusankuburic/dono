@@ -1,0 +1,146 @@
+@page "/finance"
+@inject IBuildingService BuildingService
+@inject IBuildingSelectionService BuildingSelection
+@inject ISnackbar Snackbar
+
+<PageTitle>Finance</PageTitle>
+
+<MudText H3="true" Class="mb-4">Finance</MudText>
+
+@if (_noBuildings)
+{
+    <MudAlert Severity="Severity.Info">
+        No buildings yet. <MudLink Href="/buildings/new">Create a building</MudLink> first.
+    </MudAlert>
+}
+else if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@_loadError</MudAlert>
+}
+else if (_summary is null)
+{
+    <MudProgressLinear Indeterminate="true" Class="mt-4" />
+}
+else
+{
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Total Income (12 months)</MudText>
+                    <MudText H5="true">@_summary.TotalIncome.ToString("N2") RSD</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Total Expenses</MudText>
+                    <MudText H5="true">@_summary.TotalExpenses.ToString("N2") RSD</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Balance</MudText>
+                    <MudText H5="true" Color="@(_summary.Balance >= 0 ? Color.Success : Color.Error)">@_summary.Balance.ToString("N2") RSD</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Outstanding (this month)</MudText>
+                    <MudText H5="true" Color="@(_summary.OutstandingReceivables > 0 ? Color.Warning : Color.Success)">@_summary.OutstandingReceivables.ToString("N2") RSD</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Collection Rate (12 months)</MudText>
+                    <MudText H5="true">@_summary.CollectionRate.ToString("N1")%</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText H5="true" Class="mt-8 mb-2">Monthly Fee</MudText>
+    <MudPaper Class="pa-4" Elevation="2">
+        <MudGrid AlignItems="End">
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField @bind-Value="_feeName" Label="Fee name" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudNumericField @bind-Value="_amountPerM2" Label="Amount per m² (RSD)" Min="0" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudNumericField @bind-Value="_fixedAmount" Label="Fixed amount (RSD, optional)" Min="0" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveFee" Disabled="@_saving">
+                    @(_saving ? "Saving..." : "Save")
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+        <MudText Typo="Typo.caption" Class="mt-2">
+            Monthly fee = fixed amount + (amount per m² × unit area). Saving a new fee replaces the active one.
+        </MudText>
+    </MudPaper>
+}
+
+@code {
+    private string? _buildingId;
+    private bool _noBuildings;
+    private FinancialSummary? _summary;
+    private string? _loadError;
+
+    private string _feeName = "Standard";
+    private decimal _amountPerM2;
+    private decimal? _fixedAmount;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+            if (_buildingId is null)
+            {
+                _noBuildings = true;
+                return;
+            }
+
+            _summary = await BuildingService.GetFinancialSummaryAsync(_buildingId);
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not load financial summary: {ex.Message}";
+        }
+    }
+
+    private async Task SaveFee()
+    {
+        if (_buildingId is null || _amountPerM2 < 0)
+        {
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            await BuildingService.SetFeeStructureAsync(_buildingId, string.IsNullOrWhiteSpace(_feeName) ? "Standard" : _feeName, _amountPerM2, _fixedAmount);
+            _summary = await BuildingService.GetFinancialSummaryAsync(_buildingId);
+            Snackbar.Add("Fee structure saved", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not save fee: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

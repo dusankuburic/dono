@@ -1,0 +1,109 @@
+@page "/buildings/{BuildingId}"
+@inject IBuildingService BuildingService
+@inject IBuildingSelectionService BuildingSelection
+
+<PageTitle>Building details</PageTitle>
+
+@if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@_loadError</MudAlert>
+}
+else if (_summary is null)
+{
+    <MudProgressLinear Indeterminate="true" Class="mt-4" />
+}
+else
+{
+    <MudText H3="true" Class="mb-1">@_summary.Name</MudText>
+    <MudText Typo="Typo.body1" Class="mb-4">@_summary.Street @_summary.StreetNumber, @_summary.City</MudText>
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Units</MudText>
+                    <MudText H5="true">@_summary.UnitCount</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Active Residents</MudText>
+                    <MudText H5="true">@_summary.ResidentCount</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Keys Checked Out</MudText>
+                    <MudText H5="true">@_summary.KeysCheckedOut</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Open Work Orders</MudText>
+                    <MudText H5="true">@_summary.OpenWorkOrders</MudText>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText H5="true" Class="mb-2">Units</MudText>
+
+    <MudTable Items="@_units" Hover="true" Breakpoint="Breakpoint.Sm">
+        <HeaderContent>
+            <MudTh>Number</MudTh>
+            <MudTh>Floor</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Area (m²)</MudTh>
+            <MudTh>Ownership Share</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Number">@context.Number</MudTd>
+            <MudTd DataLabel="Floor">@context.Floor</MudTd>
+            <MudTd DataLabel="Type">@context.Type</MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip Size="Size.Small">@context.Status</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Area">@context.AreaM2.ToString("N2")</MudTd>
+            <MudTd DataLabel="Ownership Share">@context.OwnershipShare.ToString("N2")%</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No units registered.</MudTd>
+        </NoRecordsContent>
+    </MudTable>
+}
+
+@code {
+    private BuildingSummary? _summary;
+    private List<UnitInfo> _units = new();
+    private string? _loadError;
+
+    [Parameter]
+    public string BuildingId { get; set; } = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _summary = await BuildingService.GetBuildingAsync(BuildingId);
+            var units = await BuildingService.GetUnitsAsync(BuildingId);
+            _units = units.ToList();
+
+            // Viewing a building makes it the active one for the other pages.
+            if (_summary is not null)
+            {
+                await BuildingSelection.SetSelectedBuildingIdAsync(BuildingId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not load building: {ex.Message}";
+        }
+    }
+}

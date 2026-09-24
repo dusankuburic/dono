@@ -1,0 +1,85 @@
+@page "/keys"
+@inject IBuildingService BuildingService
+@inject IBuildingSelectionService BuildingSelection
+
+<PageTitle>Keys</PageTitle>
+
+<MudText H3="true" Class="mb-4">Keys</MudText>
+
+@if (_noBuildings)
+{
+    <MudAlert Severity="Severity.Info">
+        No buildings yet. <MudLink Href="/buildings/new">Create a building</MudLink> first.
+    </MudAlert>
+}
+else if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@_loadError</MudAlert>
+}
+else
+{
+    <MudTable Items="@_keys" Hover="true" Stripable="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
+        <HeaderContent>
+            <MudTh>Identifier</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Unit</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Holder</MudTh>
+            <MudTh>Expected Return</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Identifier">@context.Identifier</MudTd>
+            <MudTd DataLabel="Type">@context.Type</MudTd>
+            <MudTd DataLabel="Unit">@(context.UnitNumber ?? "-")</MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip Size="Size.Small" Color="@GetStatusColor(context.Status)">@context.Status</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Holder">@(context.CurrentCheckout?.RecipientName ?? "-")</MudTd>
+            <MudTd DataLabel="Expected Return">@(context.CurrentCheckout is null ? "-" : context.CurrentCheckout.ExpectedReturn.ToString("yyyy-MM-dd HH:mm"))</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No keys registered.</MudTd>
+        </NoRecordsContent>
+    </MudTable>
+}
+
+@code {
+    private List<KeyInfo> _keys = new();
+    private bool _loading = true;
+    private bool _noBuildings;
+    private string? _loadError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+            if (buildingId is null)
+            {
+                _noBuildings = true;
+                return;
+            }
+
+            var keys = await BuildingService.GetKeysAsync(buildingId);
+            _keys = keys.ToList();
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not load keys: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Color GetStatusColor(KeyStatus status) => status switch
+    {
+        KeyStatus.Available => Color.Success,
+        KeyStatus.CheckedOut => Color.Warning,
+        KeyStatus.Lost => Color.Error,
+        KeyStatus.Damaged => Color.Error,
+        KeyStatus.InRepair => Color.Info,
+        _ => Color.Default
+    };
+}

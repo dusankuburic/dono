@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0-android;net8.0-ios;net8.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net8.0-windows10.0.19041.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BuildingManager.Mobile</RootNamespace>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <MauiEnablePlatformUsages>true</MauiEnablePlatformUsages>
+    
+    <ApplicationTitle>Building Manager</ApplicationTitle>
+    <ApplicationId>com.buildingmanager.app</ApplicationId>
+    <ApplicationIdGuid>A1B2C3D4-E5F6-7890-ABCD-EF1234567890</ApplicationIdGuid>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#1976D2" />
+    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#1976D2" BaseSize="128,128" />
+    <MauiImage Include="Resources\Images\*" />
+    <MauiFont Include="Resources\Fonts\*" />
+    <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BuildingManager.Blazor\BuildingManager.Blazor.csproj" />
+    <ProjectReference Include="..\BuildingManager.Core\BuildingManager.Core.csproj" />
+    <ProjectReference Include="..\BuildingManager.Orleans.Interfaces\BuildingManager.Orleans.Interfaces.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Orleans.Client" />
+    <PackageReference Include="Microsoft.Orleans.Sdk" />
+    <PackageReference Include="SQLitePCLRaw.bundle_green" />
+  </ItemGroup>
+
+</Project>

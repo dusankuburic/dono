@@ -1,0 +1,1397 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "fullTextIndex"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  phone         String?   @unique
+  passwordHash  String
+  role          UserRole  @default(OWNER)
+  status        UserStatus @default(PENDING)
+  
+  emailVerified Boolean   @default(false)
+  phoneVerified Boolean   @default(false)
+  
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  profile       Person?
+  sessions      Session[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN           // System admin
+  COMPANY_ADMIN   // Property management company admin
+  MANAGER         // Building manager (regular or professional)
+  SUBSTITUTE      // Substitute manager
+  OWNER           // Unit owner
+  TENANT          // Tenant
+}
+
+enum UserStatus {
+  PENDING     // Awaiting verification
+  ACTIVE      // Normal active user
+  SUSPENDED   // Account suspended
+  DELETED     // Soft deleted
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  userAgent String?
+  ip        String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@map("sessions")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ============================================================================
+// PERSON & IDENTITY
+// ============================================================================
+
+model Person {
+  id              String   @id @default(uuid())
+  userId          String?  @unique
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  firstName       String
+  lastName        String
+  preferredName   String?
+  
+  // Multiple contact methods
+  phones          Phone[]
+  emails          Email[]
+  
+  // Address (if different from unit)
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  postalCode      String?
+  country         String?  @default("RS")
+  
+  // Emergency contact
+  emergencyName   String?
+  emergencyPhone  String?
+  emergencyRelation String?
+  
+  // Additional info
+  dateOfBirth     DateTime?
+  nationalId      String?  // JMBG
+  passportNumber  String?
+  notes           String?  @db.Text
+  
+  // Profile
+  avatarUrl       String?
+  
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  ownerships      Ownership[]
+  tenancies       Tenancy[]
+  familyMemberships FamilyMember[]
+  keyTransactions KeyTransaction[]
+  reportedWorkOrders WorkOrder[] @relation("ReportedBy")
+  createdAnnouncements Announcement[]
+  assemblyAttendances Attendance[]
+  votes           Vote[]
+  auditLogs       AuditLog[] @relation("PerformedBy")
+  
+  @@index([firstName, lastName])
+  @@map("persons")
+}
+
+model Phone {
+  id          String      @id @default(uuid())
+  personId    String
+  person      Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+  number      String      // E.164 format
+  type        PhoneType   @default(MOBILE)
+  isPrimary   Boolean     @default(false)
+  isVerified  Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  
+  @@unique([personId, number])
+  @@index([personId])
+  @@map("phones")
+}
+
+enum PhoneType {
+  MOBILE
+  HOME
+  WORK
+  OTHER
+}
+
+model Email {
+  id          String      @id @default(uuid())
+  personId    String
+  person      Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+  address     String
+  type        EmailType   @default(PERSONAL)
+  isPrimary   Boolean     @default(false)
+  isVerified  Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  
+  @@unique([personId, address])
+  @@index([personId])
+  @@map("emails")
+}
+
+enum EmailType {
+  PERSONAL
+  WORK
+  OTHER
+}
+
+// ============================================================================
+// BUILDING
+// ============================================================================
+
+model Building {
+  id                String          @id @default(uuid())
+  
+  // Basic info
+  name              String?
+  streetAddress     String
+  streetNumber      String
+  city              String          @default("Beograd")
+  postalCode        String?
+  country           String          @default("Srbija")
+  
+  // Location
+  latitude          Decimal?        @db.Decimal(10, 8)
+  longitude         Decimal?        @db.Decimal(11, 8)
+  
+  // Building details
+  yearBuilt         Int?
+  totalFloors       Int?
+  hasElevator       Boolean         @default(false)
+  hasParking        Boolean         @default(false)
+  
+  // Areas
+  totalAreaM2       Decimal?        @db.Decimal(10, 2)
+  commonAreaM2      Decimal?        @db.Decimal(10, 2)
+  
+  // Legal entity
+  isLegalEntity     Boolean         @default(false)
+  legalEntityName   String?         // e.g., "SZ Bulevar Oslobođenja 12"
+  mbNumber          String?         // Matični broj
+  pib               String?         // Tax ID
+  bankAccount       String?
+  registrationDate  DateTime?
+  
+  // Settings
+  settings          BuildingSettings?
+  
+  // Relations
+  units             Unit[]
+  commonAreas       CommonArea[]
+  keys              Key[]
+  workOrders        WorkOrder[]
+  announcements     Announcement[]
+  assemblies        Assembly[]
+  feeStructures     FeeStructure[]
+  payments          Payment[]
+  expenses          Expense[]
+  documents         Document[]
+  serviceProviders  BuildingServiceProvider[]
+  deadlines         Deadline[]
+  managerAssignments ManagerAssignment[]
+  
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([city])
+  @@index([isLegalEntity])
+  @@map("buildings")
+}
+
+model BuildingSettings {
+  id                String    @id @default(uuid())
+  buildingId        String    @unique
+  building          Building  @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  // Assembly settings
+  assemblyNoticeDays      Int     @default(3)  // Minimum notice days
+  quorumFirstSession      Decimal @default(51) @db.Decimal(5, 2)  // 51%
+  quorumRepeatedSession   Decimal @default(33.33) @db.Decimal(5, 2)  // 1/3
+  
+  // Fee settings
+  feeDueDay         Int       @default(10)  // Day of month fees are due
+  lateFeePercent    Decimal?  @db.Decimal(5, 2)
+  gracePeriodDays   Int       @default(5)
+  
+  // Notification settings
+  notifyBeforeDays  Int       @default(7)
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@map("building_settings")
+}
+
+model Unit {
+  id                String      @id @default(uuid())
+  buildingId        String
+  building          Building    @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  // Identification
+  number            String      // e.g., "12", "A1", "4/2"
+  floor             Int
+  entrance          String?     // A, B, etc.
+  position          String?     // N, S, E, W
+  
+  // Physical
+  areaM2            Decimal     @db.Decimal(8, 2)
+  roomCount         Int?
+  bedroomCount      Int?
+  bathroomCount     Int?
+  balconyCount      Int?        @default(0)
+  hasStorage        Boolean     @default(false)
+  hasParking        Boolean     @default(false)
+  
+  // Ownership
+  ownershipShare    Decimal     @db.Decimal(6, 4)  // Percentage of building
+  votingShare       Decimal     @db.Decimal(6, 4)  // Usually same as ownership
+  
+  // Classification
+  type              UnitType    @default(APARTMENT)
+  status            UnitStatus  @default(OCCUPIED_OWNER)
+  
+  // Relations
+  ownerships        Ownership[]
+  tenancies         Tenancy[]
+  familyMembers     FamilyMember[]
+  keys              Key[]
+  workOrders        WorkOrder[]
+  payments          Payment[]
+  
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  
+  @@unique([buildingId, number])
+  @@index([buildingId])
+  @@map("units")
+}
+
+enum UnitType {
+  APARTMENT
+  STUDIO
+  LOFT
+  COMMERCIAL
+  OFFICE
+  GARAGE
+  STORAGE
+  MIXED_USE
+}
+
+enum UnitStatus {
+  OCCUPIED_OWNER      // Owner lives there
+  OCCUPIED_FAMILY     // Family member lives there
+  OCCUPIED_TENANT     // Rented out
+  VACANT              // Empty
+  UNDER_RENOVATION    // Being renovated
+}
+
+model CommonArea {
+  id                String        @id @default(uuid())
+  buildingId        String
+  building          Building      @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  name              String
+  type              CommonAreaType
+  description       String?       @db.Text
+  floor             Int?
+  areaM2            Decimal?      @db.Decimal(8, 2)
+  isBookable        Boolean       @default(false)
+  bookingRules      String?       @db.Text
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  @@index([buildingId])
+  @@map("common_areas")
+}
+
+enum CommonAreaType {
+  ENTRANCE_HALL
+  STAIRWELL
+  ELEVATOR
+  CORRIDOR
+  LAUNDRY_ROOM
+  STORAGE_ROOM
+  BOILER_ROOM
+  ELECTRICAL_ROOM
+  GARBAGE_AREA
+  BICYCLE_STORAGE
+  COMMON_ROOM
+  GUEST_APARTMENT
+  SAUNA
+  FITNESS_ROOM
+  PARKING_LOT
+  GARAGE
+  GARDEN
+  PLAYGROUND
+  TERRACE
+  OTHER
+}
+
+// ============================================================================
+// OWNERSHIP & TENANCY
+// ============================================================================
+
+model Ownership {
+  id                String        @id @default(uuid())
+  unitId            String
+  unit              Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  personId          String
+  person            Person        @relation(fields: [personId], references: [id], onDelete: Cascade)
+  
+  share             Decimal       @db.Decimal(6, 4)  // Share of this unit (can be co-ownership)
+  
+  purchaseDate      DateTime?
+  purchasePrice     Decimal?      @db.Decimal(14, 2)
+  
+  // Voting rights
+  canVote           Boolean       @default(true)
+  votingDelegatedTo String?       // If voting rights delegated
+  
+  // Availability tracking
+  unavailableStatus UnavailableStatus @default(ACTIVE)
+  unavailableSince  DateTime?
+  missedAssemblies  Int           @default(0)
+  
+  isActive          Boolean       @default(true)
+  startDate         DateTime      @default(now())
+  endDate           DateTime?
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  @@unique([unitId, personId, isActive])
+  @@index([unitId])
+  @@index([personId])
+  @@map("ownerships")
+}
+
+enum UnavailableStatus {
+  ACTIVE              // Participating normally
+  WARNING             // Missed 1-2 assemblies
+  POTENTIALLY_UNAVAILABLE  // Missed 3 assemblies
+  CONFIRMED_UNAVAILABLE    // Manager confirmed
+}
+
+model Tenancy {
+  id                String        @id @default(uuid())
+  unitId            String
+  unit              Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  personId          String
+  person            Person        @relation(fields: [personId], references: [id], onDelete: Cascade)
+  
+  // Lease details
+  leaseStart        DateTime
+  leaseEnd          DateTime?
+  leaseType         LeaseType     @default(FIXED_TERM)
+  monthlyRent       Decimal?      @db.Decimal(14, 2)
+  
+  // Owner reference
+  ownerPersonId     String?
+  
+  // Registration (legal requirement: 30 days)
+  registeredWithPolice Boolean    @default(false)
+  registrationDate  DateTime?
+  
+  isActive          Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  @@index([unitId])
+  @@index([personId])
+  @@map("tenancies")
+}
+
+enum LeaseType {
+  FIXED_TERM
+  MONTH_TO_MONTH
+  INDEFINITE
+}
+
+model FamilyMember {
+  id                String        @id @default(uuid())
+  unitId            String
+  unit              Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  personId          String
+  person            Person        @relation(fields: [personId], references: [id], onDelete: Cascade)
+  
+  relationship      FamilyRelationship
+  authorizationLevel AuthorizationLevel @default(OCCUPANT_ONLY)
+  
+  isEmergencyContact Boolean      @default(false)
+  
+  isActive          Boolean       @default(true)
+  moveInDate        DateTime      @default(now())
+  moveOutDate       DateTime?
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  @@index([unitId])
+  @@index([personId])
+  @@map("family_members")
+}
+
+enum FamilyRelationship {
+  SPOUSE
+  CHILD
+  PARENT
+  SIBLING
+  GRANDPARENT
+  GRANDCHILD
+  OTHER_RELATIVE
+  NON_RELATIVE
+}
+
+enum AuthorizationLevel {
+  FULL_AUTHORIZATION  // Can make all decisions
+  LIMITED_AUTHORIZATION // Can request repairs
+  OCCUPANT_ONLY       // No decision authority
+}
+
+// ============================================================================
+// MANAGER ASSIGNMENT
+// ============================================================================
+
+model ManagerAssignment {
+  id                String            @id @default(uuid())
+  buildingId        String
+  building          Building          @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  managerId         String            // User ID of manager
+  
+  // Manager type
+  managerType       ManagerType       @default(REGULAR)
+  
+  // Professional manager details (if applicable)
+  licenseNumber     String?
+  licenseExpiry     DateTime?
+  insuranceProvider String?
+  insurancePolicyNumber String?
+  insuranceExpiry   DateTime?
+  insuranceAmount   Decimal?          @db.Decimal(14, 2)
+  
+  // Assignment period
+  startDate         DateTime          @default(now())
+  endDate           DateTime?
+  isPrimary         Boolean           @default(true)
+  
+  // Forced administration
+  isForcedAdmin     Boolean           @default(false)
+  forcedAdminReason String?
+  forcedAdminStartDate DateTime?
+  forcedAdminEndDate DateTime?
+  
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  
+  @@unique([buildingId, managerId, isActive])
+  @@index([buildingId])
+  @@index([managerId])
+  @@map("manager_assignments")
+}
+
+enum ManagerType {
+  REGULAR          // Owner-elected volunteer
+  PROFESSIONAL     // Licensed professional
+  SUBSTITUTE       // Temporary substitute
+}
+
+// ============================================================================
+// KEYS
+// ============================================================================
+
+model Key {
+  id                String          @id @default(uuid())
+  buildingId        String
+  building          Building        @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  unitId            String?
+  unit              Unit?           @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  
+  // Key details
+  identifier        String          // Copy number: "1", "2", "3"
+  type              KeyType
+  description       String?
+  
+  // Lock details
+  lockManufacturer  String?
+  lockModel         String?
+  
+  // Status
+  status            KeyStatus       @default(AVAILABLE)
+  
+  // Current holder (if checked out)
+  currentTransactionId String?
+  currentTransaction   KeyTransaction? @relation("CurrentTransaction", fields: [currentTransactionId], references: [id])
+  
+  // Relations
+  transactions      KeyTransaction[]
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@unique([buildingId, unitId, identifier])
+  @@index([buildingId])
+  @@index([unitId])
+  @@map("keys")
+}
+
+enum KeyType {
+  ENTRANCE_MAIN     // Main entrance
+  ENTRANCE_SIDE     // Side entrance
+  UNIT              // Apartment key
+  STORAGE           // Storage room
+  GARAGE            // Garage
+  COMMON_ROOM       // Common room
+  MAILBOX           // Mailbox
+  OTHER
+}
+
+enum KeyStatus {
+  AVAILABLE         // In manager's possession
+  CHECKED_OUT       // Someone has it
+  LOST              // Reported lost
+  DAMAGED           // Damaged, needs replacement
+}
+
+model KeyTransaction {
+  id                String          @id @default(uuid())
+  keyId             String
+  key               Key             @relation(fields: [keyId], references: [id], onDelete: Cascade)
+  
+  // Transaction type
+  type              TransactionType
+  
+  // Recipient info
+  recipientPersonId String?
+  recipientPerson   Person?         @relation(fields: [recipientPersonId], references: [id], onDelete: SetNull)
+  recipientName     String          // Can be non-resident
+  recipientPhone    String?
+  recipientType     RecipientType
+  recipientIdNumber String?         // ID document number
+  
+  // Transaction details
+  purpose           String          @db.Text
+  expectedReturn    DateTime
+  actualReturn      DateTime?
+  
+  // Condition
+  checkoutCondition KeyCondition    @default(GOOD)
+  returnCondition   KeyCondition?
+  
+  // Documentation
+  idPhotoUrl        String?         // Photo of recipient's ID
+  receiptUrl        String?         // Generated receipt
+  
+  // Performed by
+  performedByPersonId String
+  performedByPerson   Person         @relation(fields: [performedByPersonId], references: [id])
+  
+  // For checkin, link to checkout
+  checkoutTransactionId String?
+  
+  notes             String?         @db.Text
+  
+  createdAt         DateTime        @default(now())
+  
+  @@index([keyId])
+  @@index([recipientPersonId])
+  @@index([expectedReturn])
+  @@map("key_transactions")
+}
+
+enum TransactionType {
+  CHECKOUT
+  CHECKIN
+}
+
+enum RecipientType {
+  RESIDENT
+  CONTRACTOR
+  VIEWER           // Apartment viewing
+  NEW_RESIDENT
+  OTHER
+}
+
+enum KeyCondition {
+  GOOD
+  DAMAGED
+  LOST
+}
+
+// ============================================================================
+// WORK ORDERS
+// ============================================================================
+
+model WorkOrder {
+  id                String          @id @default(uuid())
+  buildingId        String
+  building          Building        @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  unitId            String?
+  unit              Unit?           @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  
+  // Basic info
+  referenceNumber   String          @unique  // e.g., "WO-2024-0123"
+  title             String
+  description       String          @db.Text
+  
+  // Classification
+  category          WorkOrderCategory
+  priority          Priority        @default(NORMAL)
+  status            WorkOrderStatus @default(NEW)
+  
+  // Emergency tracking
+  isEmergency       Boolean         @default(false)
+  emergencyStartedAt DateTime?
+  emergencyCompletedAt DateTime?
+  emergencyCompliant Boolean?       // Completed within 48 hours
+  
+  // Reporting
+  reportedById      String
+  reportedBy        Person          @relation("ReportedBy", fields: [reportedById], references: [id])
+  reportedAt        DateTime        @default(now())
+  
+  // Assignment
+  serviceProviderId String?
+  serviceProvider   ServiceProvider? @relation(fields: [serviceProviderId], references: [id], onDelete: SetNull)
+  assignedAt        DateTime?
+  
+  // Resolution
+  completedAt       DateTime?
+  resolution        String?         @db.Text
+  
+  // Relations
+  photos            WorkOrderPhoto[]
+  notes             WorkOrderNote[]
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([buildingId])
+  @@index([unitId])
+  @@index([status])
+  @@index([priority])
+  @@index([isEmergency, emergencyStartedAt])
+  @@map("work_orders")
+}
+
+enum WorkOrderCategory {
+  PLUMBING
+  ELECTRICAL
+  ELEVATOR
+  COMMON_AREAS
+  FACADE_ROOF
+  ENTRANCE_INTERCOM
+  HEATING
+  COOLING
+  PARKING
+  GARDEN
+  SECURITY
+  CLEANING
+  OTHER
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  EMERGENCY
+}
+
+enum WorkOrderStatus {
+  NEW
+  ACKNOWLEDGED
+  IN_PROGRESS
+  WAITING_PARTS
+  WAITING_DECISION
+  COMPLETED
+  CANCELLED
+}
+
+model WorkOrderPhoto {
+  id            String      @id @default(uuid())
+  workOrderId   String
+  workOrder     WorkOrder   @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  
+  url           String
+  caption       String?
+  order         Int         @default(0)
+  
+  uploadedAt    DateTime    @default(now())
+  
+  @@index([workOrderId])
+  @@map("work_order_photos")
+}
+
+model WorkOrderNote {
+  id            String      @id @default(uuid())
+  workOrderId   String
+  workOrder     WorkOrder   @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  
+  content       String      @db.Text
+  isVisible     Boolean     @default(true)  // Visible to resident
+  
+  createdByPersonId String
+  createdAt     DateTime    @default(now())
+  
+  @@index([workOrderId])
+  @@map("work_order_notes")
+}
+
+// ============================================================================
+// ANNOUNCEMENTS
+// ============================================================================
+
+model Announcement {
+  id                String            @id @default(uuid())
+  buildingId        String
+  building          Building          @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  // Content
+  title             String
+  content           String            @db.Text
+  
+  // Type
+  type              AnnouncementType  @default(GENERAL)
+  
+  // Targeting
+  targetType        TargetType        @default(ALL)
+  targetUnitIds     String[]          // For specific units
+  
+  // Delivery
+  channels          NotificationChannel[]
+  scheduledFor      DateTime?
+  sentAt            DateTime?
+  
+  // Tracking
+  deliveries        AnnouncementDelivery[]
+  
+  // Author
+  createdById       String
+  createdBy         Person            @relation(fields: [createdById], references: [id])
+  
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  
+  @@index([buildingId])
+  @@index([sentAt])
+  @@map("announcements")
+}
+
+enum AnnouncementType {
+  GENERAL
+  EMERGENCY
+  MAINTENANCE
+  MEETING
+  PAYMENT_REMINDER
+}
+
+enum TargetType {
+  ALL
+  OWNERS_ONLY
+  TENANTS_ONLY
+  SPECIFIC_UNITS
+}
+
+enum NotificationChannel {
+  PUSH
+  SMS
+  EMAIL
+}
+
+model AnnouncementDelivery {
+  id              String          @id @default(uuid())
+  announcementId  String
+  announcement    Announcement    @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  
+  personId        String
+  channel         NotificationChannel
+  
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  
+  @@index([announcementId])
+  @@index([personId])
+  @@map("announcement_deliveries")
+}
+
+// ============================================================================
+// ASSEMBLY & VOTING
+// ============================================================================
+
+model Assembly {
+  id                String          @id @default(uuid())
+  buildingId        String
+  building          Building        @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  // Schedule
+  date              DateTime
+  location          String
+  
+  // Session
+  sessionType       SessionType     @default(FIRST)
+  
+  // Status
+  status            AssemblyStatus  @default(SCHEDULED)
+  
+  // Notice
+  noticeSentAt      DateTime?
+  noticeMethod      String?
+  physicalPostingConfirmed Boolean @default(false)
+  
+  // Quorum
+  quorumAchieved    Boolean?
+  quorumPercentage  Decimal?        @db.Decimal(5, 2)
+  
+  // Relations
+  agendaItems       AgendaItem[]
+  attendances       Attendance[]
+  minutes           Document?
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([buildingId])
+  @@index([date])
+  @@map("assemblies")
+}
+
+enum SessionType {
+  FIRST
+  REPEATED
+}
+
+enum AssemblyStatus {
+  SCHEDULED
+  NOTICE_SENT
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model AgendaItem {
+  id                String          @id @default(uuid())
+  assemblyId        String
+  assembly          Assembly        @relation(fields: [assemblyId], references: [id], onDelete: Cascade)
+  
+  order             Int
+  title             String
+  description       String?         @db.Text
+  
+  // Voting
+  requiresVote      Boolean         @default(true)
+  votingType        VotingType      @default(SIMPLE)
+  result            VoteResult?
+  
+  // Relations
+  votes             Vote[]
+  
+  createdAt         DateTime        @default(now())
+  
+  @@index([assemblyId])
+  @@map("agenda_items")
+}
+
+enum VotingType {
+  UNANIMOUS         // 100%
+  TWO_THIRDS        // 66.67%
+  SIMPLE            // 50% + 1
+}
+
+enum VoteResult {
+  PASSED
+  FAILED
+  PENDING
+}
+
+model Attendance {
+  id                String          @id @default(uuid())
+  assemblyId        String
+  assembly          Assembly        @relation(fields: [assemblyId], references: [id], onDelete: Cascade)
+  personId          String
+  person            Person          @relation(fields: [personId], references: [id], onDelete: Cascade)
+  
+  // Attendance type
+  type              AttendanceType
+  
+  // Proxy
+  proxyHolderId     String?         // Person who holds their proxy
+  
+  // Voting share
+  votingShare       Decimal         @db.Decimal(6, 4)
+  
+  checkedInAt       DateTime        @default(now())
+  
+  @@unique([assemblyId, personId])
+  @@index([assemblyId])
+  @@map("attendances")
+}
+
+enum AttendanceType {
+  IN_PERSON
+  PROXY
+  WRITTEN
+  ELECTRONIC
+}
+
+model Vote {
+  id                String          @id @default(uuid())
+  agendaItemId      String
+  agendaItem        AgendaItem      @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+  personId          String
+  person            Person          @relation(fields: [personId], references: [id], onDelete: Cascade)
+  
+  choice            VoteChoice
+  votingShare       Decimal         @db.Decimal(6, 4)
+  
+  recordedAt        DateTime        @default(now())
+  
+  @@unique([agendaItemId, personId])
+  @@index([agendaItemId])
+  @@map("votes")
+}
+
+enum VoteChoice {
+  FOR
+  AGAINST
+  ABSTAIN
+}
+
+// ============================================================================
+// FINANCE
+// ============================================================================
+
+model FeeStructure {
+  id                String          @id @default(uuid())
+  buildingId        String
+  building          Building        @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  // Calculation type
+  type              FeeType         @default(PER_M2)
+  
+  // Amounts
+  baseAmount        Decimal         @db.Decimal(10, 2)  // For fixed or base
+  perM2Amount       Decimal?        @db.Decimal(10, 2)  // For per m²
+  
+  // Frequency
+  frequency         FeeFrequency    @default(MONTHLY)
+  
+  // Categories
+  categories        FeeCategory[]
+  
+  // Validity
+  validFrom         DateTime        @default(now())
+  validTo           DateTime?
+  
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([buildingId])
+  @@map("fee_structures")
+}
+
+enum FeeType {
+  PER_M2            // Amount × area
+  FIXED             // Same for all
+  MIXED             // Base + per m²
+}
+
+enum FeeFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+model FeeCategory {
+  id                String          @id @default(uuid())
+  feeStructureId    String
+  feeStructure      FeeStructure    @relation(fields: [feeStructureId], references: [id], onDelete: Cascade)
+  
+  name              String
+  amount            Decimal         @db.Decimal(10, 2)
+  
+  @@index([feeStructureId])
+  @@map("fee_categories")
+}
+
+model Payment {
+  id                String          @id @default(uuid())
+  buildingId        String
+  building          Building        @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  unitId            String
+  unit              Unit            @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  
+  // Payment details
+  amount            Decimal         @db.Decimal(10, 2)
+  currency          String          @default("RSD")
+  paymentDate       DateTime
+  periodStart       DateTime?       // What period is this for
+  periodEnd         DateTime?
+  
+  // Method
+  method            PaymentMethod   @default(BANK_TRANSFER)
+  reference         String?         // Bank reference
+  
+  // Recording
+  recordedById      String?
+  notes             String?
+  
+  // Online payment
+  isOnline          Boolean         @default(false)
+  transactionId     String?
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([buildingId])
+  @@index([unitId])
+  @@index([paymentDate])
+  @@map("payments")
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CARD
+  QR_CODE
+  OTHER
+}
+
+model Expense {
+  id                String          @id @default(uuid())
+  buildingId        String
+  building          Building        @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  // Details
+  amount            Decimal         @db.Decimal(10, 2)
+  currency          String          @default("RSD")
+  expenseDate       DateTime
+  
+  // Classification
+  category          ExpenseCategory
+  description       String          @db.Text
+  
+  // Provider
+  serviceProviderId String?
+  serviceProvider   ServiceProvider? @relation(fields: [serviceProviderId], references: [id], onDelete: SetNull)
+  
+  // Work order link
+  workOrderId       String?
+  workOrder         WorkOrder?      @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  
+  // Documentation
+  receiptUrl        String?
+  invoiceUrl        String?
+  
+  // Recording
+  recordedById      String?
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([buildingId])
+  @@index([expenseDate])
+  @@map("expenses")
+}
+
+enum ExpenseCategory {
+  UTILITIES_ELECTRICITY
+  UTILITIES_WATER
+  UTILITIES_HEATING
+  UTILITIES_GAS
+  REPAIRS
+  MAINTENANCE
+  CLEANING
+  SECURITY
+  ELEVATOR
+  INSURANCE
+  LEGAL
+  ADMINISTRATIVE
+  RESERVE_FUND
+  OTHER
+}
+
+// ============================================================================
+// SERVICE PROVIDERS
+// ============================================================================
+
+model ServiceProvider {
+  id                String              @id @default(uuid())
+  
+  // Basic info
+  companyName       String?
+  contactName       String
+  phone             String
+  email             String?
+  address           String?
+  
+  // Services
+  services          ServiceProviderService[]
+  buildings         BuildingServiceProvider[]
+  
+  // Insurance
+  hasInsurance      Boolean             @default(false)
+  insuranceExpiry   DateTime?
+  
+  // Rating
+  averageRating     Decimal?            @db.Decimal(2, 1)
+  totalJobs         Int                 @default(0)
+  
+  // Notes
+  notes             String?             @db.Text
+  isPreferred       Boolean             @default(false)
+  isBlocked         Boolean             @default(false)
+  
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  
+  @@map("service_providers")
+}
+
+model ServiceProviderService {
+  id                String          @id @default(uuid())
+  serviceProviderId String
+  serviceProvider   ServiceProvider @relation(fields: [serviceProviderId], references: [id], onDelete: Cascade)
+  service           String
+  
+  @@unique([serviceProviderId, service])
+  @@map("service_provider_services")
+}
+
+model BuildingServiceProvider {
+  id                String          @id @default(uuid())
+  buildingId        String
+  building          Building        @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  serviceProviderId String
+  serviceProvider   ServiceProvider @relation(fields: [serviceProviderId], references: [id], onDelete: Cascade)
+  
+  // Rating for this building
+  rating            Int?            // 1-5
+  notes             String?
+  
+  addedAt           DateTime        @default(now())
+  
+  @@unique([buildingId, serviceProviderId])
+  @@map("building_service_providers")
+}
+
+// ============================================================================
+// DOCUMENTS
+// ============================================================================
+
+model Document {
+  id                String          @id @default(uuid())
+  buildingId        String
+  building          Building        @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  // File
+  name              String
+  description       String?
+  fileUrl           String
+  fileSize          Int?            // Bytes
+  mimeType          String?
+  
+  // Classification
+  category          DocumentCategory
+  accessLevel       DocumentAccess  @default(MANAGER_ONLY)
+  
+  // Assembly link (for minutes)
+  assemblyId        String?         @unique
+  assembly          Assembly?       @relation(fields: [assemblyId], references: [id], onDelete: SetNull)
+  
+  // Version
+  version           Int             @default(1)
+  previousVersionId String?
+  
+  uploadedById      String?
+  uploadedAt        DateTime        @default(now())
+  
+  @@index([buildingId])
+  @@index([category])
+  @@map("documents")
+}
+
+enum DocumentCategory {
+  REGISTRATION
+  ASSEMBLY_MINUTES
+  FINANCIAL_REPORT
+  INSURANCE
+  CONTRACT
+  PERMIT
+  OWNERS_RULES
+  OTHER
+}
+
+enum DocumentAccess {
+  MANAGER_ONLY
+  OWNERS
+  ALL_RESIDENTS
+  PUBLIC
+}
+
+// ============================================================================
+// DEADLINES
+// ============================================================================
+
+model Deadline {
+  id                String          @id @default(uuid())
+  buildingId        String
+  building          Building        @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  // Type
+  type              DeadlineType
+  description       String
+  
+  // Dates
+  dueDate           DateTime
+  completedAt       DateTime?
+  completedById     String?
+  completionNotes   String?
+  
+  // Status
+  status            DeadlineStatus  @default(PENDING)
+  
+  // Reminders
+  reminderSent      Boolean         @default(false)
+  reminderSentAt    DateTime?
+  
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  
+  @@index([buildingId])
+  @@index([dueDate])
+  @@index([status])
+  @@map("deadlines")
+}
+
+enum DeadlineType {
+  FIRST_ASSEMBLY
+  COMMUNITY_REGISTRATION
+  REGISTRATION_UPDATE
+  TENANT_DATA_SUBMISSION
+  EMERGENCY_INTERVENTION
+  MAINTENANCE_PROGRAM
+  APPEAL_COMPULSORY_MGMT
+  SEMI_ANNUAL_REPORT
+  INSURANCE_RENEWAL
+  LICENSE_RENEWAL
+  CUSTOM
+}
+
+enum DeadlineStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+}
+
+// ============================================================================
+// AUDIT LOG
+// ============================================================================
+
+model AuditLog {
+  id              String        @id @default(uuid())
+  
+  // Who
+  userId          String?
+  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  personId        String?
+  person          Person?       @relation("PerformedBy", fields: [personId], references: [id], onDelete: SetNull)
+  
+  // What
+  action          String
+  entityType      String
+  entityId        String
+  
+  // Where
+  buildingId      String?
+  ipAddress       String?
+  userAgent       String?
+  
+  // Changes
+  oldValue        Json?
+  newValue        Json?
+  
+  // When
+  createdAt       DateTime      @default(now())
+  
+  @@index([userId])
+  @@index([personId])
+  @@index([entityType, entityId])
+  @@index([buildingId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================================================
+// SYNC (for offline support)
+// ============================================================================
+
+model SyncRecord {
+  id              String    @id @default(uuid())
+  userId          String
+  entityType      String
+  entityId        String
+  operation       String    // CREATE, UPDATE, DELETE
+  data            Json
+  deviceId        String
+  syncedAt        DateTime?
+  conflictResolved Boolean @default(false)
+  createdAt       DateTime  @default(now())
+  
+  @@unique([userId, entityType, entityId, deviceId])
+  @@index([userId])
+  @@index([syncedAt])
+  @@map("sync_records")
+}

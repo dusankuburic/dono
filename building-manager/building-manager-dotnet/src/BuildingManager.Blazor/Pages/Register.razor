@@ -1,0 +1,85 @@
+@page "/register"
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Register</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraSmall" Class="mt-16">
+    <MudPaper Class="pa-6" Elevation="4">
+        <MudStack Spacing="4" AlignItems="AlignItems.Center">
+            <MudText H5="true" Align="Align.Center">Create an account</MudText>
+
+            <MudTextField @bind-Value="_displayName" Label="Full name" Required="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Person" />
+            <MudTextField @bind-Value="_email" Label="Email" Required="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Email" />
+            <MudSelect T="UserRole" @bind-Value="_role" Label="I am a..." Variant="Variant.Text" Margin="Margin.Dense"
+                       Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Badge">
+                <MudSelectItem Value="UserRole.Owner">Owner</MudSelectItem>
+                <MudSelectItem Value="UserRole.Tenant">Tenant</MudSelectItem>
+                <MudSelectItem Value="UserRole.Manager">Building manager</MudSelectItem>
+                <MudSelectItem Value="UserRole.SubstituteManager">Substitute manager</MudSelectItem>
+            </MudSelect>
+            <MudTextField @bind-Value="_password" Label="Password (min. 8 characters)" InputType="InputType.Password" Required="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Lock" />
+            <MudTextField @bind-Value="_confirmPassword" Label="Confirm password" InputType="InputType.Password" Required="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Lock"
+                          Error="@(_password != _confirmPassword)" ErrorText="Passwords do not match" />
+
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+            }
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Large"
+                       OnClick="SubmitRegister" Disabled="@_busy">
+                @(_busy ? "Creating account..." : "Create account")
+            </MudButton>
+
+            <MudText Typo="Typo.body2">
+                Already registered? <MudLink Href="/login">Sign in</MudLink>
+            </MudText>
+        </MudStack>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string _displayName = string.Empty;
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string _confirmPassword = string.Empty;
+    private UserRole _role = UserRole.Owner;
+    private string? _error;
+    private bool _busy;
+
+    private async Task SubmitRegister()
+    {
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_displayName)
+            || string.IsNullOrWhiteSpace(_email)
+            || _password.Length < 8
+            || _password != _confirmPassword)
+        {
+            _error = "Please fill in all fields (password at least 8 characters, matching confirmation).";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await AuthService.RegisterAsync(_email.Trim(), _displayName.Trim(), _password, _role);
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message.Contains("409")
+                ? "An account with this email already exists."
+                : $"Could not register: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,94 @@
+@page "/buildings/new"
+@inject IBuildingService BuildingService
+@inject IBuildingSelectionService BuildingSelection
+@inject NavigationManager Navigation
+
+<MudText H4="true" Class="mb-4">Add New Building</MudText>
+
+<MudPaper Class="pa-4" Elevation="2">
+    <EditForm Model="@_building" OnValidSubmit="HandleSubmit">
+        <MudGrid>
+            <MudItem xs="12" md="6">
+                <MudTextField @bind-Value="_building.Name" Label="Building Name" Required="true" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudTextField @bind-Value="_building.City" Label="City" Required="true" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudTextField @bind-Value="_building.Street" Label="Street" Required="true" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudTextField @bind-Value="_building.StreetNumber" Label="Street Number" Required="true" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudTextField @bind-Value="_building.PostalCode" Label="Postal Code" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudNumericField @bind-Value="_building.TotalFloors" Label="Total Floors" Min="1" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudNumericField @bind-Value="_building.YearBuilt" Label="Year Built" Min="1800" Max="2100" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudNumericField @bind-Value="_building.TotalAreaM2" Label="Total Area (m²)" Min="0" />
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudSwitch @bind-Value="_building.HasElevator" Label="Has Elevator" T="bool" />
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudSwitch @bind-Value="_building.HasParking" Label="Has Parking" T="bool" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Type="submit">Save</MudButton>
+                    <MudButton Variant="Variant.Outlined" OnClick="Cancel">Cancel</MudButton>
+                </MudStack>
+            </MudItem>
+        </MudGrid>
+    </EditForm>
+</MudPaper>
+
+@code {
+    private BuildingViewModel _building = new();
+
+    private async Task HandleSubmit()
+    {
+        var buildingId = Guid.NewGuid().ToString();
+        var info = new BuildingInfoRequest
+        {
+            Name = _building.Name,
+            Street = _building.Street,
+            StreetNumber = _building.StreetNumber,
+            City = _building.City,
+            PostalCode = _building.PostalCode,
+            YearBuilt = _building.YearBuilt,
+            TotalFloors = _building.TotalFloors ?? 1,
+            HasElevator = _building.HasElevator,
+            HasParking = _building.HasParking,
+            TotalAreaM2 = _building.TotalAreaM2 ?? 0
+        };
+
+        await BuildingService.InitializeBuildingAsync(buildingId, info);
+        await BuildingSelection.SetSelectedBuildingIdAsync(buildingId);
+        Navigation.NavigateTo("/buildings");
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/buildings");
+    }
+
+    private class BuildingViewModel
+    {
+        public string Name { get; set; } = "";
+        public string Street { get; set; } = "";
+        public string StreetNumber { get; set; } = "";
+        public string City { get; set; } = "";
+        public string? PostalCode { get; set; }
+        public int? YearBuilt { get; set; }
+        public int? TotalFloors { get; set; } = 1;
+        public bool HasElevator { get; set; }
+        public bool HasParking { get; set; }
+        public decimal? TotalAreaM2 { get; set; }
+    }
+}

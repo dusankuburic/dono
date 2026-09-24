@@ -1,0 +1,75 @@
+@page "/residents"
+@inject IBuildingService BuildingService
+@inject IBuildingSelectionService BuildingSelection
+
+<PageTitle>Residents</PageTitle>
+
+<MudText H3="true" Class="mb-4">Residents</MudText>
+
+@if (_noBuildings)
+{
+    <MudAlert Severity="Severity.Info">
+        No buildings yet. <MudLink Href="/buildings/new">Create a building</MudLink> first.
+    </MudAlert>
+}
+else if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@_loadError</MudAlert>
+}
+else
+{
+    <MudTable Items="@_residents" Hover="true" Stripable="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Unit</MudTh>
+            <MudTh>Role</MudTh>
+            <MudTh>Phone</MudTh>
+            <MudTh>Email</MudTh>
+            <MudTh>Ownership Share</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">@context.FirstName @context.LastName</MudTd>
+            <MudTd DataLabel="Unit">@(context.UnitNumber ?? "-")</MudTd>
+            <MudTd DataLabel="Role">
+                <MudChip Size="Size.Small">@context.Role</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Phone">@(context.Phone ?? "-")</MudTd>
+            <MudTd DataLabel="Email">@(context.Email ?? "-")</MudTd>
+            <MudTd DataLabel="Ownership Share">@(context.OwnershipShare?.ToString("N2") ?? "-")%</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No active residents.</MudTd>
+        </NoRecordsContent>
+    </MudTable>
+}
+
+@code {
+    private List<ResidentInfo> _residents = new();
+    private bool _loading = true;
+    private bool _noBuildings;
+    private string? _loadError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+            if (buildingId is null)
+            {
+                _noBuildings = true;
+                return;
+            }
+
+            var residents = await BuildingService.GetResidentsAsync(buildingId);
+            _residents = residents.ToList();
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not load residents: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

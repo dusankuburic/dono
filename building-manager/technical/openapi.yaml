@@ -1,0 +1,3392 @@
+openapi: 3.0.3
+info:
+  title: Building Manager API
+  description: API for the Building Manager (Upravnik Zgrade) application
+  version: 1.0.0
+  contact:
+    name: Building Manager Team
+    email: support@upravnik.app
+
+servers:
+  - url: https://api.upravnik.app/api/v1
+    description: Production
+  - url: https://staging-api.upravnik.app/api/v1
+    description: Staging
+  - url: http://localhost:3000/api/v1
+    description: Development
+
+tags:
+  - name: Auth
+    description: Authentication endpoints
+  - name: Buildings
+    description: Building management
+  - name: Units
+    description: Unit management
+  - name: Residents
+    description: Resident management
+  - name: Keys
+    description: Key management
+  - name: Work Orders
+    description: Maintenance work orders
+  - name: Announcements
+    description: Announcements and notifications
+  - name: Assemblies
+    description: Assembly meetings and voting
+  - name: Finance
+    description: Financial management
+  - name: Documents
+    description: Document management
+  - name: Service Providers
+    description: Contractor management
+  - name: Deadlines
+    description: Deadline tracking
+  - name: Sync
+    description: Offline sync
+
+paths:
+  # ============================================================================
+  # AUTH
+  # ============================================================================
+  
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Email or phone already exists
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid refresh token
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logged out successfully
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Reset email sent (if email exists)
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password reset successful
+        '400':
+          description: Invalid or expired token
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserWithProfile'
+
+  # ============================================================================
+  # BUILDINGS
+  # ============================================================================
+
+  /buildings:
+    get:
+      tags: [Buildings]
+      summary: List user's buildings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive]
+      responses:
+        '200':
+          description: List of buildings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildingListResponse'
+    post:
+      tags: [Buildings]
+      summary: Create building
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBuildingRequest'
+      responses:
+        '201':
+          description: Building created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Building'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /buildings/{buildingId}:
+    get:
+      tags: [Buildings]
+      summary: Get building details
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      responses:
+        '200':
+          description: Building details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Building'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Buildings]
+      summary: Update building
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBuildingRequest'
+      responses:
+        '200':
+          description: Building updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Building'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Buildings]
+      summary: Archive building
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      responses:
+        '200':
+          description: Building archived
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /buildings/{buildingId}/units:
+    get:
+      tags: [Units]
+      summary: List building units
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: floor
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/UnitStatus'
+      responses:
+        '200':
+          description: List of units
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnitListResponse'
+    post:
+      tags: [Units]
+      summary: Create unit
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUnitRequest'
+      responses:
+        '201':
+          description: Unit created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unit'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /buildings/{buildingId}/units/{unitId}:
+    get:
+      tags: [Units]
+      summary: Get unit details
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - $ref: '#/components/parameters/unitId'
+      responses:
+        '200':
+          description: Unit details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnitDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Units]
+      summary: Update unit
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - $ref: '#/components/parameters/unitId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUnitRequest'
+      responses:
+        '200':
+          description: Unit updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unit'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # RESIDENTS
+  # ============================================================================
+
+  /buildings/{buildingId}/residents:
+    get:
+      tags: [Residents]
+      summary: List residents
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: search
+          in: query
+          description: Search by name, unit number, or phone
+          schema:
+            type: string
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [owner, tenant, family]
+        - name: unitId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of residents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResidentListResponse'
+    post:
+      tags: [Residents]
+      summary: Create resident
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResidentRequest'
+      responses:
+        '201':
+          description: Resident created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /residents/{residentId}:
+    get:
+      tags: [Residents]
+      summary: Get resident details
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/residentId'
+      responses:
+        '200':
+          description: Resident details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Residents]
+      summary: Update resident
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/residentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateResidentRequest'
+      responses:
+        '200':
+          description: Resident updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Residents]
+      summary: Archive resident
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/residentId'
+      responses:
+        '200':
+          description: Resident archived
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /residents/{residentId}/history:
+    get:
+      tags: [Residents]
+      summary: Get occupancy history
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/residentId'
+      responses:
+        '200':
+          description: Occupancy history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OccupancyRecord'
+
+  # ============================================================================
+  # KEYS
+  # ============================================================================
+
+  /buildings/{buildingId}/keys:
+    get:
+      tags: [Keys]
+      summary: List keys
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/KeyType'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/KeyStatus'
+        - name: unitId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of keys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyListResponse'
+    post:
+      tags: [Keys]
+      summary: Create key
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateKeyRequest'
+      responses:
+        '201':
+          description: Key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Key'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /buildings/{buildingId}/keys/overdue:
+    get:
+      tags: [Keys]
+      summary: List overdue keys
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      responses:
+        '200':
+          description: List of overdue keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/KeyWithTransaction'
+
+  /keys/{keyId}:
+    get:
+      tags: [Keys]
+      summary: Get key details
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/keyId'
+      responses:
+        '200':
+          description: Key details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Keys]
+      summary: Update key
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/keyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateKeyRequest'
+      responses:
+        '200':
+          description: Key updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Key'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Keys]
+      summary: Delete key
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/keyId'
+      responses:
+        '200':
+          description: Key deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /keys/{keyId}/checkout:
+    post:
+      tags: [Keys]
+      summary: Checkout key
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/keyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KeyCheckoutRequest'
+      responses:
+        '200':
+          description: Key checked out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyTransaction'
+        '400':
+          description: Key already checked out
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /keys/{keyId}/checkin:
+    post:
+      tags: [Keys]
+      summary: Checkin key
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/keyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KeyCheckinRequest'
+      responses:
+        '200':
+          description: Key checked in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyTransaction'
+        '400':
+          description: Key not checked out
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /keys/{keyId}/history:
+    get:
+      tags: [Keys]
+      summary: Get key transaction history
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/keyId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Transaction history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyTransactionListResponse'
+
+  # ============================================================================
+  # WORK ORDERS
+  # ============================================================================
+
+  /buildings/{buildingId}/work-orders:
+    get:
+      tags: [Work Orders]
+      summary: List work orders
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/WorkOrderStatus'
+        - name: priority
+          in: query
+          schema:
+            $ref: '#/components/schemas/Priority'
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/WorkOrderCategory'
+        - name: unitId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of work orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderListResponse'
+    post:
+      tags: [Work Orders]
+      summary: Create work order
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkOrderRequest'
+      responses:
+        '201':
+          description: Work order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /work-orders/{workOrderId}:
+    get:
+      tags: [Work Orders]
+      summary: Get work order details
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/workOrderId'
+      responses:
+        '200':
+          description: Work order details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Work Orders]
+      summary: Update work order
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/workOrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkOrderRequest'
+      responses:
+        '200':
+          description: Work order updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /work-orders/{workOrderId}/status:
+    post:
+      tags: [Work Orders]
+      summary: Update work order status
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/workOrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/WorkOrderStatus'
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /work-orders/{workOrderId}/notes:
+    post:
+      tags: [Work Orders]
+      summary: Add note to work order
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/workOrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                isVisible:
+                  type: boolean
+                  default: true
+                  description: Visible to resident
+      responses:
+        '201':
+          description: Note added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderNote'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /work-orders/{workOrderId}/photos:
+    post:
+      tags: [Work Orders]
+      summary: Upload photo to work order
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/workOrderId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                caption:
+                  type: string
+      responses:
+        '201':
+          description: Photo uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderPhoto'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /work-orders/{workOrderId}/assign:
+    put:
+      tags: [Work Orders]
+      summary: Assign work order to service provider
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/workOrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [serviceProviderId]
+              properties:
+                serviceProviderId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Work order assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # ANNOUNCEMENTS
+  # ============================================================================
+
+  /buildings/{buildingId}/announcements:
+    get:
+      tags: [Announcements]
+      summary: List announcements
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/AnnouncementType'
+      responses:
+        '200':
+          description: List of announcements
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnouncementListResponse'
+    post:
+      tags: [Announcements]
+      summary: Create announcement
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAnnouncementRequest'
+      responses:
+        '201':
+          description: Announcement created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /announcements/{announcementId}:
+    get:
+      tags: [Announcements]
+      summary: Get announcement details
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/announcementId'
+      responses:
+        '200':
+          description: Announcement details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnouncementDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Announcements]
+      summary: Update announcement
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/announcementId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAnnouncementRequest'
+      responses:
+        '200':
+          description: Announcement updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Announcements]
+      summary: Delete announcement
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/announcementId'
+      responses:
+        '200':
+          description: Announcement deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /announcements/{announcementId}/stats:
+    get:
+      tags: [Announcements]
+      summary: Get delivery statistics
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/announcementId'
+      responses:
+        '200':
+          description: Delivery statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnouncementStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # ASSEMBLIES
+  # ============================================================================
+
+  /buildings/{buildingId}/assemblies:
+    get:
+      tags: [Assemblies]
+      summary: List assemblies
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/AssemblyStatus'
+      responses:
+        '200':
+          description: List of assemblies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssemblyListResponse'
+    post:
+      tags: [Assemblies]
+      summary: Create assembly
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssemblyRequest'
+      responses:
+        '201':
+          description: Assembly created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assembly'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /assemblies/{assemblyId}:
+    get:
+      tags: [Assemblies]
+      summary: Get assembly details
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/assemblyId'
+      responses:
+        '200':
+          description: Assembly details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssemblyDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Assemblies]
+      summary: Update assembly
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/assemblyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAssemblyRequest'
+      responses:
+        '200':
+          description: Assembly updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assembly'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Assemblies]
+      summary: Cancel assembly
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/assemblyId'
+      responses:
+        '200':
+          description: Assembly cancelled
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /assemblies/{assemblyId}/notice:
+    post:
+      tags: [Assemblies]
+      summary: Send assembly notice
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/assemblyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channels:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/NotificationChannel'
+                customMessage:
+                  type: string
+      responses:
+        '200':
+          description: Notice sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assembly'
+        '400':
+          description: Notice period not met or other error
+
+  /assemblies/{assemblyId}/attendance:
+    get:
+      tags: [Assemblies]
+      summary: Get attendance list
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/assemblyId'
+      responses:
+        '200':
+          description: Attendance list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Attendance'
+    post:
+      tags: [Assemblies]
+      summary: Record attendance
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/assemblyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordAttendanceRequest'
+      responses:
+        '200':
+          description: Attendance recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attendance'
+
+  /assemblies/{assemblyId}/quorum:
+    get:
+      tags: [Assemblies]
+      summary: Get quorum status
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/assemblyId'
+      responses:
+        '200':
+          description: Quorum status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuorumStatus'
+
+  /assemblies/{assemblyId}/vote:
+    post:
+      tags: [Assemblies]
+      summary: Record vote
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/assemblyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordVoteRequest'
+      responses:
+        '200':
+          description: Vote recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoteResult'
+
+  /assemblies/{assemblyId}/finalize:
+    post:
+      tags: [Assemblies]
+      summary: Finalize assembly and generate minutes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/assemblyId'
+      responses:
+        '200':
+          description: Assembly finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssemblyDetail'
+        '400':
+          description: Cannot finalize (e.g., quorum not met)
+
+  # ============================================================================
+  # FINANCE
+  # ============================================================================
+
+  /buildings/{buildingId}/fee-structure:
+    get:
+      tags: [Finance]
+      summary: Get current fee structure
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      responses:
+        '200':
+          description: Fee structure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeeStructure'
+    post:
+      tags: [Finance]
+      summary: Create fee structure
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFeeStructureRequest'
+      responses:
+        '201':
+          description: Fee structure created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeeStructure'
+
+  /buildings/{buildingId}/payments:
+    get:
+      tags: [Finance]
+      summary: List payments
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: unitId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: List of payments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentListResponse'
+    post:
+      tags: [Finance]
+      summary: Record payment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+      responses:
+        '201':
+          description: Payment recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+
+  /buildings/{buildingId}/expenses:
+    get:
+      tags: [Finance]
+      summary: List expenses
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/ExpenseCategory'
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: List of expenses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpenseListResponse'
+    post:
+      tags: [Finance]
+      summary: Record expense
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExpenseRequest'
+      responses:
+        '201':
+          description: Expense recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+
+  /buildings/{buildingId}/financials:
+    get:
+      tags: [Finance]
+      summary: Get financial summary
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: periodStart
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: periodEnd
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Financial summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialSummary'
+
+  /buildings/{buildingId}/arrears:
+    get:
+      tags: [Finance]
+      summary: List unpaid units
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/buildingId'
+        - name: months
+          in: query
+          description: Number of months behind
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: List of units in arrears
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UnitArrears'
+
+  # ============================================================================
+  # SYNC
+  # ============================================================================
+
+  /sync/push:
+    post:
+      tags: [Sync]
+      summary: Push local changes
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncPushRequest'
+      responses:
+        '200':
+          description: Changes pushed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncPushResponse'
+
+  /sync/pull:
+    get:
+      tags: [Sync]
+      summary: Pull remote changes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lastSyncAt
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: entityTypes
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: Remote changes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncPullResponse'
+
+  /sync/status:
+    get:
+      tags: [Sync]
+      summary: Get sync status
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncStatus'
+
+# ============================================================================
+# COMPONENTS
+# ============================================================================
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    buildingId:
+      name: buildingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    unitId:
+      name: unitId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    residentId:
+      name: residentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    keyId:
+      name: keyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    workOrderId:
+      name: workOrderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    announcementId:
+      name: announcementId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    assemblyId:
+      name: assemblyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # -------------------------------------------------------------------------
+    # Common
+    # -------------------------------------------------------------------------
+    
+    ErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Invalid input data
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    ResponseMeta:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        requestId:
+          type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    # -------------------------------------------------------------------------
+    # Auth
+    # -------------------------------------------------------------------------
+
+    RegisterRequest:
+      type: object
+      required: [email, password, firstName, lastName]
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        password:
+          type: string
+          minLength: 8
+        firstName:
+          type: string
+        lastName:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+            accessToken:
+              type: string
+            refreshToken:
+              type: string
+            expiresIn:
+              type: integer
+              description: Seconds until token expires
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    TokenResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            accessToken:
+              type: string
+            expiresIn:
+              type: integer
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        createdAt:
+          type: string
+          format: date-time
+
+    UserWithProfile:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            profile:
+              $ref: '#/components/schemas/Person'
+
+    UserRole:
+      type: string
+      enum: [ADMIN, COMPANY_ADMIN, MANAGER, SUBSTITUTE, OWNER, TENANT]
+
+    UserStatus:
+      type: string
+      enum: [PENDING, ACTIVE, SUSPENDED, DELETED]
+
+    # -------------------------------------------------------------------------
+    # Building
+    # -------------------------------------------------------------------------
+
+    Building:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        streetAddress:
+          type: string
+        streetNumber:
+          type: string
+        city:
+          type: string
+        postalCode:
+          type: string
+        country:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        yearBuilt:
+          type: integer
+        totalFloors:
+          type: integer
+        hasElevator:
+          type: boolean
+        hasParking:
+          type: boolean
+        totalAreaM2:
+          type: number
+        isLegalEntity:
+          type: boolean
+        legalEntityName:
+          type: string
+        mbNumber:
+          type: string
+        pib:
+          type: string
+        unitCount:
+          type: integer
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    BuildingListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Building'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    CreateBuildingRequest:
+      type: object
+      required: [streetAddress, streetNumber]
+      properties:
+        name:
+          type: string
+        streetAddress:
+          type: string
+        streetNumber:
+          type: string
+        city:
+          type: string
+        postalCode:
+          type: string
+        yearBuilt:
+          type: integer
+        totalFloors:
+          type: integer
+        hasElevator:
+          type: boolean
+        hasParking:
+          type: boolean
+        totalAreaM2:
+          type: number
+
+    UpdateBuildingRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        isLegalEntity:
+          type: boolean
+        legalEntityName:
+          type: string
+        mbNumber:
+          type: string
+        pib:
+          type: string
+        bankAccount:
+          type: string
+        registrationDate:
+          type: string
+          format: date
+
+    # -------------------------------------------------------------------------
+    # Unit
+    # -------------------------------------------------------------------------
+
+    Unit:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        number:
+          type: string
+        floor:
+          type: integer
+        entrance:
+          type: string
+        areaM2:
+          type: number
+        ownershipShare:
+          type: number
+        votingShare:
+          type: number
+        type:
+          $ref: '#/components/schemas/UnitType'
+        status:
+          $ref: '#/components/schemas/UnitStatus'
+        ownerCount:
+          type: integer
+        residentCount:
+          type: integer
+
+    UnitDetail:
+      allOf:
+        - $ref: '#/components/schemas/Unit'
+        - type: object
+          properties:
+            owners:
+              type: array
+              items:
+                $ref: '#/components/schemas/Ownership'
+            residents:
+              type: array
+              items:
+                $ref: '#/components/schemas/Person'
+
+    UnitListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Unit'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    UnitType:
+      type: string
+      enum: [APARTMENT, STUDIO, LOFT, COMMERCIAL, OFFICE, GARAGE, STORAGE, MIXED_USE]
+
+    UnitStatus:
+      type: string
+      enum: [OCCUPIED_OWNER, OCCUPIED_FAMILY, OCCUPIED_TENANT, VACANT, UNDER_RENOVATION]
+
+    CreateUnitRequest:
+      type: object
+      required: [number, floor, areaM2, ownershipShare]
+      properties:
+        number:
+          type: string
+        floor:
+          type: integer
+        entrance:
+          type: string
+        position:
+          type: string
+        areaM2:
+          type: number
+        roomCount:
+          type: integer
+        bedroomCount:
+          type: integer
+        bathroomCount:
+          type: integer
+        ownershipShare:
+          type: number
+        type:
+          $ref: '#/components/schemas/UnitType'
+
+    UpdateUnitRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/UnitStatus'
+        roomCount:
+          type: integer
+        bedroomCount:
+          type: integer
+        bathroomCount:
+          type: integer
+
+    # -------------------------------------------------------------------------
+    # Person / Resident
+    # -------------------------------------------------------------------------
+
+    Person:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        firstName:
+          type: string
+        lastName:
+          type: string
+        preferredName:
+          type: string
+        phones:
+          type: array
+          items:
+            $ref: '#/components/schemas/Phone'
+        emails:
+          type: array
+          items:
+            $ref: '#/components/schemas/Email'
+        emergencyName:
+          type: string
+        emergencyPhone:
+          type: string
+        avatarUrl:
+          type: string
+        isActive:
+          type: boolean
+
+    PersonDetail:
+      allOf:
+        - $ref: '#/components/schemas/Person'
+        - type: object
+          properties:
+            units:
+              type: array
+              items:
+                type: object
+                properties:
+                  unit:
+                    $ref: '#/components/schemas/Unit'
+                  role:
+                    type: string
+                    enum: [owner, tenant, family]
+                  ownershipShare:
+                    type: number
+
+    Phone:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        number:
+          type: string
+        type:
+          $ref: '#/components/schemas/PhoneType'
+        isPrimary:
+          type: boolean
+        isVerified:
+          type: boolean
+
+    PhoneType:
+      type: string
+      enum: [MOBILE, HOME, WORK, OTHER]
+
+    Email:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        address:
+          type: string
+          format: email
+        type:
+          type: string
+        isPrimary:
+          type: boolean
+        isVerified:
+          type: boolean
+
+    Ownership:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        personId:
+          type: string
+          format: uuid
+        person:
+          $ref: '#/components/schemas/Person'
+        unitId:
+          type: string
+          format: uuid
+        share:
+          type: number
+        canVote:
+          type: boolean
+        unavailableStatus:
+          $ref: '#/components/schemas/UnavailableStatus'
+
+    UnavailableStatus:
+      type: string
+      enum: [ACTIVE, WARNING, POTENTIALLY_UNAVAILABLE, CONFIRMED_UNAVAILABLE]
+
+    ResidentListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    CreateResidentRequest:
+      type: object
+      required: [firstName, lastName, unitId, role]
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        unitId:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [owner, tenant, family]
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        emergencyName:
+          type: string
+        emergencyPhone:
+          type: string
+        ownershipShare:
+          type: number
+          description: Required if role is owner
+        moveInDate:
+          type: string
+          format: date
+        leaseStart:
+          type: string
+          format: date
+          description: Required if role is tenant
+        leaseEnd:
+          type: string
+          format: date
+
+    UpdateResidentRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        preferredName:
+          type: string
+        emergencyName:
+          type: string
+        emergencyPhone:
+          type: string
+        isActive:
+          type: boolean
+
+    OccupancyRecord:
+      type: object
+      properties:
+        unitId:
+          type: string
+          format: uuid
+        unitNumber:
+          type: string
+        role:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        reason:
+          type: string
+
+    # -------------------------------------------------------------------------
+    # Keys
+    # -------------------------------------------------------------------------
+
+    Key:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        unitId:
+          type: string
+          format: uuid
+        identifier:
+          type: string
+        type:
+          $ref: '#/components/schemas/KeyType'
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/KeyStatus'
+        currentTransaction:
+          $ref: '#/components/schemas/KeyTransaction'
+
+    KeyDetail:
+      allOf:
+        - $ref: '#/components/schemas/Key'
+        - type: object
+          properties:
+            unit:
+              $ref: '#/components/schemas/Unit'
+            transactionHistory:
+              type: array
+              items:
+                $ref: '#/components/schemas/KeyTransaction'
+
+    KeyWithTransaction:
+      allOf:
+        - $ref: '#/components/schemas/Key'
+        - type: object
+          properties:
+            currentTransaction:
+              $ref: '#/components/schemas/KeyTransaction'
+
+    KeyType:
+      type: string
+      enum: [ENTRANCE_MAIN, ENTRANCE_SIDE, UNIT, STORAGE, GARAGE, COMMON_ROOM, MAILBOX, OTHER]
+
+    KeyStatus:
+      type: string
+      enum: [AVAILABLE, CHECKED_OUT, LOST, DAMAGED]
+
+    KeyListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Key'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    CreateKeyRequest:
+      type: object
+      required: [type, identifier]
+      properties:
+        unitId:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/KeyType'
+        identifier:
+          type: string
+        description:
+          type: string
+        lockManufacturer:
+          type: string
+        lockModel:
+          type: string
+
+    UpdateKeyRequest:
+      type: object
+      properties:
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/KeyStatus'
+
+    KeyTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        keyId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [CHECKOUT, CHECKIN]
+        recipientPersonId:
+          type: string
+          format: uuid
+        recipientName:
+          type: string
+        recipientPhone:
+          type: string
+        recipientType:
+          $ref: '#/components/schemas/RecipientType'
+        purpose:
+          type: string
+        expectedReturn:
+          type: string
+          format: date-time
+        actualReturn:
+          type: string
+          format: date-time
+        checkoutCondition:
+          $ref: '#/components/schemas/KeyCondition'
+        returnCondition:
+          $ref: '#/components/schemas/KeyCondition'
+        idPhotoUrl:
+          type: string
+        receiptUrl:
+          type: string
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    RecipientType:
+      type: string
+      enum: [RESIDENT, CONTRACTOR, VIEWER, NEW_RESIDENT, OTHER]
+
+    KeyCondition:
+      type: string
+      enum: [GOOD, DAMAGED, LOST]
+
+    KeyTransactionListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/KeyTransaction'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    KeyCheckoutRequest:
+      type: object
+      required: [recipientName, recipientPhone, recipientType, purpose, expectedReturn]
+      properties:
+        recipientPersonId:
+          type: string
+          format: uuid
+        recipientName:
+          type: string
+        recipientPhone:
+          type: string
+        recipientType:
+          $ref: '#/components/schemas/RecipientType'
+        recipientIdNumber:
+          type: string
+        purpose:
+          type: string
+        expectedReturn:
+          type: string
+          format: date-time
+        notes:
+          type: string
+
+    KeyCheckinRequest:
+      type: object
+      required: [condition]
+      properties:
+        condition:
+          $ref: '#/components/schemas/KeyCondition'
+        notes:
+          type: string
+
+    # -------------------------------------------------------------------------
+    # Work Orders
+    # -------------------------------------------------------------------------
+
+    WorkOrder:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        unitId:
+          type: string
+          format: uuid
+        referenceNumber:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/WorkOrderCategory'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        status:
+          $ref: '#/components/schemas/WorkOrderStatus'
+        isEmergency:
+          type: boolean
+        emergencyStartedAt:
+          type: string
+          format: date-time
+        reportedById:
+          type: string
+          format: uuid
+        reportedBy:
+          $ref: '#/components/schemas/Person'
+        serviceProviderId:
+          type: string
+          format: uuid
+        assignedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    WorkOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/WorkOrder'
+        - type: object
+          properties:
+            unit:
+              $ref: '#/components/schemas/Unit'
+            photos:
+              type: array
+              items:
+                $ref: '#/components/schemas/WorkOrderPhoto'
+            notes:
+              type: array
+              items:
+                $ref: '#/components/schemas/WorkOrderNote'
+            statusHistory:
+              type: array
+              items:
+                type: object
+                properties:
+                  status:
+                    $ref: '#/components/schemas/WorkOrderStatus'
+                  changedAt:
+                    type: string
+                    format: date-time
+                  changedBy:
+                    $ref: '#/components/schemas/Person'
+                  notes:
+                    type: string
+
+    WorkOrderCategory:
+      type: string
+      enum: [PLUMBING, ELECTRICAL, ELEVATOR, COMMON_AREAS, FACADE_ROOF, ENTRANCE_INTERCOM, HEATING, COOLING, PARKING, GARDEN, SECURITY, CLEANING, OTHER]
+
+    Priority:
+      type: string
+      enum: [LOW, NORMAL, HIGH, EMERGENCY]
+
+    WorkOrderStatus:
+      type: string
+      enum: [NEW, ACKNOWLEDGED, IN_PROGRESS, WAITING_PARTS, WAITING_DECISION, COMPLETED, CANCELLED]
+
+    WorkOrderListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkOrder'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    CreateWorkOrderRequest:
+      type: object
+      required: [title, description, category]
+      properties:
+        unitId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          minLength: 10
+        category:
+          $ref: '#/components/schemas/WorkOrderCategory'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        isEmergency:
+          type: boolean
+
+    UpdateWorkOrderRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/WorkOrderCategory'
+        priority:
+          $ref: '#/components/schemas/Priority'
+
+    WorkOrderPhoto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        caption:
+          type: string
+        order:
+          type: integer
+        uploadedAt:
+          type: string
+          format: date-time
+
+    WorkOrderNote:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        isVisible:
+          type: boolean
+        createdByPersonId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    # -------------------------------------------------------------------------
+    # Announcements
+    # -------------------------------------------------------------------------
+
+    Announcement:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        content:
+          type: string
+        type:
+          $ref: '#/components/schemas/AnnouncementType'
+        targetType:
+          $ref: '#/components/schemas/TargetType'
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationChannel'
+        scheduledFor:
+          type: string
+          format: date-time
+        sentAt:
+          type: string
+          format: date-time
+        createdById:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    AnnouncementDetail:
+      allOf:
+        - $ref: '#/components/schemas/Announcement'
+        - type: object
+          properties:
+            createdBy:
+              $ref: '#/components/schemas/Person'
+            deliveryStats:
+              $ref: '#/components/schemas/AnnouncementStats'
+
+    AnnouncementType:
+      type: string
+      enum: [GENERAL, EMERGENCY, MAINTENANCE, MEETING, PAYMENT_REMINDER]
+
+    TargetType:
+      type: string
+      enum: [ALL, OWNERS_ONLY, TENANTS_ONLY, SPECIFIC_UNITS]
+
+    NotificationChannel:
+      type: string
+      enum: [PUSH, SMS, EMAIL]
+
+    AnnouncementListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Announcement'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    CreateAnnouncementRequest:
+      type: object
+      required: [title, content, type, targetType, channels]
+      properties:
+        title:
+          type: string
+          maxLength: 100
+        content:
+          type: string
+          maxLength: 1000
+        type:
+          $ref: '#/components/schemas/AnnouncementType'
+        targetType:
+          $ref: '#/components/schemas/TargetType'
+        targetUnitIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationChannel'
+        scheduledFor:
+          type: string
+          format: date-time
+
+    UpdateAnnouncementRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        scheduledFor:
+          type: string
+          format: date-time
+
+    AnnouncementStats:
+      type: object
+      properties:
+        totalRecipients:
+          type: integer
+        sent:
+          type: integer
+        delivered:
+          type: integer
+        read:
+          type: integer
+        failed:
+          type: integer
+
+    # -------------------------------------------------------------------------
+    # Assemblies
+    # -------------------------------------------------------------------------
+
+    Assembly:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date-time
+        location:
+          type: string
+        sessionType:
+          $ref: '#/components/schemas/SessionType'
+        status:
+          $ref: '#/components/schemas/AssemblyStatus'
+        noticeSentAt:
+          type: string
+          format: date-time
+        physicalPostingConfirmed:
+          type: boolean
+        quorumAchieved:
+          type: boolean
+        quorumPercentage:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+
+    AssemblyDetail:
+      allOf:
+        - $ref: '#/components/schemas/Assembly'
+        - type: object
+          properties:
+            agendaItems:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgendaItem'
+            attendances:
+              type: array
+              items:
+                $ref: '#/components/schemas/Attendance'
+            minutes:
+              $ref: '#/components/schemas/Document'
+
+    SessionType:
+      type: string
+      enum: [FIRST, REPEATED]
+
+    AssemblyStatus:
+      type: string
+      enum: [SCHEDULED, NOTICE_SENT, IN_PROGRESS, COMPLETED, CANCELLED]
+
+    AssemblyListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Assembly'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    CreateAssemblyRequest:
+      type: object
+      required: [date, location, agendaItems]
+      properties:
+        date:
+          type: string
+          format: date-time
+        location:
+          type: string
+        sessionType:
+          $ref: '#/components/schemas/SessionType'
+        agendaItems:
+          type: array
+          items:
+            type: object
+            required: [title]
+            properties:
+              order:
+                type: integer
+              title:
+                type: string
+              description:
+                type: string
+              requiresVote:
+                type: boolean
+              votingType:
+                $ref: '#/components/schemas/VotingType'
+
+    UpdateAssemblyRequest:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date-time
+        location:
+          type: string
+        status:
+          $ref: '#/components/schemas/AssemblyStatus'
+        physicalPostingConfirmed:
+          type: boolean
+
+    AgendaItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        assemblyId:
+          type: string
+          format: uuid
+        order:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        requiresVote:
+          type: boolean
+        votingType:
+          $ref: '#/components/schemas/VotingType'
+        result:
+          $ref: '#/components/schemas/VoteResult'
+
+    VotingType:
+      type: string
+      enum: [UNANIMOUS, TWO_THIRDS, SIMPLE]
+
+    VoteResult:
+      type: string
+      enum: [PASSED, FAILED, PENDING]
+
+    Attendance:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        assemblyId:
+          type: string
+          format: uuid
+        personId:
+          type: string
+          format: uuid
+        person:
+          $ref: '#/components/schemas/Person'
+        type:
+          $ref: '#/components/schemas/AttendanceType'
+        proxyHolderId:
+          type: string
+          format: uuid
+        votingShare:
+          type: number
+        checkedInAt:
+          type: string
+          format: date-time
+
+    AttendanceType:
+      type: string
+      enum: [IN_PERSON, PROXY, WRITTEN, ELECTRONIC]
+
+    RecordAttendanceRequest:
+      type: object
+      required: [personId, type]
+      properties:
+        personId:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/AttendanceType'
+        proxyHolderId:
+          type: string
+          format: uuid
+
+    QuorumStatus:
+      type: object
+      properties:
+        totalEligibleVotes:
+          type: number
+        presentVotes:
+          type: number
+        presentPercentage:
+          type: number
+        quorumRequired:
+          type: number
+        quorumAchieved:
+          type: boolean
+        absentOwners:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+
+    RecordVoteRequest:
+      type: object
+      required: [agendaItemId, personId, choice]
+      properties:
+        agendaItemId:
+          type: string
+          format: uuid
+        personId:
+          type: string
+          format: uuid
+        choice:
+          type: string
+          enum: [FOR, AGAINST, ABSTAIN]
+
+    VoteResult:
+      type: object
+      properties:
+        agendaItemId:
+          type: string
+          format: uuid
+        votesFor:
+          type: number
+        votesAgainst:
+          type: number
+        abstentions:
+          type: number
+        totalVotes:
+          type: number
+        percentageFor:
+          type: number
+        requiredThreshold:
+          type: number
+        passed:
+          type: boolean
+
+    # -------------------------------------------------------------------------
+    # Finance
+    # -------------------------------------------------------------------------
+
+    FeeStructure:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/FeeType'
+        baseAmount:
+          type: number
+        perM2Amount:
+          type: number
+        frequency:
+          $ref: '#/components/schemas/FeeFrequency'
+        validFrom:
+          type: string
+          format: date
+        validTo:
+          type: string
+          format: date
+        isActive:
+          type: boolean
+
+    FeeType:
+      type: string
+      enum: [PER_M2, FIXED, MIXED]
+
+    FeeFrequency:
+      type: string
+      enum: [MONTHLY, QUARTERLY, ANNUALLY]
+
+    CreateFeeStructureRequest:
+      type: object
+      required: [type, frequency]
+      properties:
+        type:
+          $ref: '#/components/schemas/FeeType'
+        baseAmount:
+          type: number
+        perM2Amount:
+          type: number
+        frequency:
+          $ref: '#/components/schemas/FeeFrequency'
+        validFrom:
+          type: string
+          format: date
+        categories:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              amount:
+                type: number
+
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        unitId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+        currency:
+          type: string
+        paymentDate:
+          type: string
+          format: date-time
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        reference:
+          type: string
+        isOnline:
+          type: boolean
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    PaymentMethod:
+      type: string
+      enum: [CASH, BANK_TRANSFER, CARD, QR_CODE, OTHER]
+
+    PaymentListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payment'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    CreatePaymentRequest:
+      type: object
+      required: [unitId, amount, paymentDate, method]
+      properties:
+        unitId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+        paymentDate:
+          type: string
+          format: date-time
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        reference:
+          type: string
+        notes:
+          type: string
+
+    Expense:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+        currency:
+          type: string
+        expenseDate:
+          type: string
+          format: date-time
+        category:
+          $ref: '#/components/schemas/ExpenseCategory'
+        description:
+          type: string
+        serviceProviderId:
+          type: string
+          format: uuid
+        workOrderId:
+          type: string
+          format: uuid
+        receiptUrl:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ExpenseCategory:
+      type: string
+      enum: [UTILITIES_ELECTRICITY, UTILITIES_WATER, UTILITIES_HEATING, UTILITIES_GAS, REPAIRS, MAINTENANCE, CLEANING, SECURITY, ELEVATOR, INSURANCE, LEGAL, ADMINISTRATIVE, RESERVE_FUND, OTHER]
+
+    ExpenseListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Expense'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ResponseMeta'
+            - $ref: '#/components/schemas/PaginationMeta'
+
+    CreateExpenseRequest:
+      type: object
+      required: [amount, expenseDate, category, description]
+      properties:
+        amount:
+          type: number
+        expenseDate:
+          type: string
+          format: date-time
+        category:
+          $ref: '#/components/schemas/ExpenseCategory'
+        description:
+          type: string
+        serviceProviderId:
+          type: string
+          format: uuid
+        workOrderId:
+          type: string
+          format: uuid
+
+    FinancialSummary:
+      type: object
+      properties:
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        totalIncome:
+          type: number
+        totalExpenses:
+          type: number
+        balance:
+          type: number
+        collectionRate:
+          type: number
+        outstandingReceivables:
+          type: number
+        incomeByCategory:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                type: string
+              amount:
+                type: number
+        expensesByCategory:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                $ref: '#/components/schemas/ExpenseCategory'
+              amount:
+                type: number
+
+    UnitArrears:
+      type: object
+      properties:
+        unitId:
+          type: string
+          format: uuid
+        unitNumber:
+          type: string
+        owners:
+          type: array
+          items:
+            $ref: '#/components/schemas/Person'
+        monthsBehind:
+          type: integer
+        amountOwed:
+          type: number
+        lastPaymentDate:
+          type: string
+          format: date
+
+    # -------------------------------------------------------------------------
+    # Documents
+    # -------------------------------------------------------------------------
+
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        buildingId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        fileUrl:
+          type: string
+        fileSize:
+          type: integer
+        mimeType:
+          type: string
+        category:
+          $ref: '#/components/schemas/DocumentCategory'
+        accessLevel:
+          $ref: '#/components/schemas/DocumentAccess'
+        version:
+          type: integer
+        uploadedAt:
+          type: string
+          format: date-time
+
+    DocumentCategory:
+      type: string
+      enum: [REGISTRATION, ASSEMBLY_MINUTES, FINANCIAL_REPORT, INSURANCE, CONTRACT, PERMIT, OWNERS_RULES, OTHER]
+
+    DocumentAccess:
+      type: string
+      enum: [MANAGER_ONLY, OWNERS, ALL_RESIDENTS, PUBLIC]
+
+    # -------------------------------------------------------------------------
+    # Sync
+    # -------------------------------------------------------------------------
+
+    SyncPushRequest:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        lastSyncAt:
+          type: string
+          format: date-time
+        changes:
+          type: array
+          items:
+            type: object
+            properties:
+              entityType:
+                type: string
+              entityId:
+                type: string
+              operation:
+                type: string
+                enum: [CREATE, UPDATE, DELETE]
+              data:
+                type: object
+              timestamp:
+                type: string
+                format: date-time
+
+    SyncPushResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            syncedAt:
+              type: string
+              format: date-time
+            accepted:
+              type: integer
+            rejected:
+              type: integer
+            conflicts:
+              type: array
+              items:
+                type: object
+                properties:
+                  entityType:
+                    type: string
+                  entityId:
+                    type: string
+                  reason:
+                    type: string
+                  localData:
+                    type: object
+                  serverData:
+                    type: object
+
+    SyncPullResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            syncedAt:
+              type: string
+              format: date-time
+            changes:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: object
+            deleted:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+
+    SyncStatus:
+      type: object
+      properties:
+        lastSyncAt:
+          type: string
+          format: date-time
+        pendingChanges:
+          type: integer
+        deviceId:
+          type: string
