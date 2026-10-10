@@ -1,0 +1,555 @@
+@page "/buildings/{BuildingId}/assemblies/{AssemblyId:guid}"
+@inject IAssemblyService AssemblyService
+@inject IBuildingService BuildingService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<PageTitle>Assembly</PageTitle>
+
+<MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Href="/assemblies" Class="mb-2">All assemblies</MudButton>
+
+@if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@_loadError</MudAlert>
+}
+else if (_a is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1" Style="flex-wrap: wrap;">
+        <MudText Typo="Typo.h4">Assembly @_a.Date.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudText>
+        <MudChip Color="@AssemblyLabels.StatusColor(_a.Status)">@AssemblyLabels.Status(_a.Status)</MudChip>
+        <MudChip Variant="Variant.Outlined">@AssemblyLabels.Session(_a.SessionType)</MudChip>
+        @if (_a.HasShortNotice)
+        {
+            <MudChip Variant="Variant.Outlined" Color="Color.Warning">Short notice</MudChip>
+        }
+    </MudStack>
+    <MudText Typo="Typo.body1" Class="mb-1">@_a.Location</MudText>
+    @if (_a.PreviousAssemblyId is { } previousId)
+    {
+        <MudText Typo="Typo.body2" Class="mb-1">
+            Repeats the <MudLink Href="@AssemblyUrl(previousId)">first session</MudLink>, which did not reach quorum.
+        </MudText>
+    }
+    @if (_a.Status == AssemblyStatus.Completed)
+    {
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Description" Href="@($"{AssemblyUrl(_a.Id)}/minutes")" Class="mt-2">
+            Minutes
+        </MudButton>
+    }
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-4" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
+    }
+
+    @* ---------- Before the meeting: notice ---------- *@
+    @if (_canManage && _a.Status is AssemblyStatus.Scheduled or AssemblyStatus.NoticeSent)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Notice to owners</MudText>
+            @if (_a.Status == AssemblyStatus.Scheduled)
+            {
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    Send the notice and agenda to all owners (at least 3 days before the meeting), then record it here.
+                    The agenda can no longer change afterwards.
+                </MudText>
+                <MudCheckBox T="bool" @bind-Checked="_postedWithNotice" Label="The notice is also posted in the building" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="@(() => Run(() => AssemblyService.MarkNoticeSentAsync(BuildingId, AssemblyId, _postedWithNotice), "Notice recorded"))">
+                    Record notice sent
+                </MudButton>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2">Notice sent @Local(_a.NoticeSentAt).</MudText>
+                @if (_a.PhysicallyPostedAt is null)
+                {
+                    <MudButton Variant="Variant.Outlined" Class="mt-2" Disabled="@_busy" OnClick="@(() => Run(() => AssemblyService.MarkNoticeSentAsync(BuildingId, AssemblyId, true), "Posting confirmed"))">
+                        Confirm posting in the building
+                    </MudButton>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2">Posted in the building @Local(_a.PhysicallyPostedAt).</MudText>
+                }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="@(_busy || !CanStartNow)" OnClick="@(() => Run(() => AssemblyService.StartAsync(BuildingId, AssemblyId), "Meeting started"))">
+                    Start meeting
+                </MudButton>
+                @if (!CanStartNow)
+                {
+                    <MudText Typo="Typo.body2" Class="mt-1">
+                        The meeting can be opened from @Local(_a.Date.AddHours(-1)), an hour before the announced time.
+                    </MudText>
+                }
+            }
+        </MudPaper>
+    }
+
+    @* ---------- During the meeting: quorum and attendance ---------- *@
+    @if (_a.Status is AssemblyStatus.InProgress or AssemblyStatus.Completed && _a.EligibleVotes > 0)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                <MudText Typo="Typo.h6">Quorum</MudText>
+                @if (_a.QuorumAchieved is { } quorum)
+                {
+                    <MudChip Color="@(quorum ? Color.Success : Color.Error)">@(quorum ? "Reached" : "Not reached")</MudChip>
+                }
+            </MudStack>
+            <MudProgressLinear Value="@((double)Math.Min(_a.QuorumPercentage, 100m))" Color="@(_a.QuorumAchieved == true ? Color.Success : Color.Warning)" Size="Size.Large" Class="my-2" />
+            <MudText Typo="Typo.body2">
+                Present: @_a.QuorumPercentage.ToString("0.##")% of all votes (@_a.Attendance.Count of @_a.EligibleUnits.Count units).
+                A @AssemblyLabels.Session(_a.SessionType).ToLowerInvariant() needs @AssemblyLabels.QuorumRule(_a.SessionType).
+            </MudText>
+            @if (_a.Status == AssemblyStatus.InProgress && _a.QuorumAchieved == false && _a.SessionType == SessionType.First)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                    Without quorum no decisions can be made. If it is not reached, complete the meeting and schedule a
+                    repeated session, which needs only one third of all votes.
+                </MudAlert>
+            }
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Attendance</MudText>
+            @if (_canManage && _a.Status == AssemblyStatus.InProgress)
+            {
+                <MudTable Items="@_attendanceRows" Dense="true" Breakpoint="Breakpoint.Sm">
+                    <HeaderContent>
+                        <MudTh>Unit</MudTh>
+                        <MudTh>Share</MudTh>
+                        <MudTh>Attendance</MudTh>
+                        <MudTh>Attendee</MudTh>
+                        <MudTh>Proxy holder</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Unit</MudTd>
+                        <MudTd>@Shares(context.Share)</MudTd>
+                        <MudTd>
+                            <MudSelect T="int" @bind-Value="context.Type" Dense="true">
+                                <MudSelectItem Value="0">Absent</MudSelectItem>
+                                @foreach (var type in Enum.GetValues<AttendanceType>())
+                                {
+                                    <MudSelectItem Value="@((int)type)">@AssemblyLabels.Attendance(type)</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudTd>
+                        <MudTd><MudTextField @bind-Value="context.AttendeeName" Disabled="@(context.Type == 0)" /></MudTd>
+                        <MudTd><MudTextField @bind-Value="context.ProxyHolder" Disabled="@(context.Type != (int)AttendanceType.Proxy)" /></MudTd>
+                        <MudTd>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@(_busy || !context.IsDirty)" OnClick="@(() => SaveAttendance(context))">Save</MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+            else
+            {
+                <MudTable Items="@_a.Attendance" Dense="true" Breakpoint="Breakpoint.Sm">
+                    <HeaderContent>
+                        <MudTh>Unit</MudTh>
+                        <MudTh>Share</MudTh>
+                        <MudTh>Attendance</MudTh>
+                        <MudTh>Attendee</MudTh>
+                        <MudTh>Proxy holder</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.UnitNumber</MudTd>
+                        <MudTd>@Shares(context.VotingShare)</MudTd>
+                        <MudTd>@AssemblyLabels.Attendance(context.Type)</MudTd>
+                        <MudTd>@context.AttendeeName</MudTd>
+                        <MudTd>@context.ProxyHolderName</MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudTd Colspan="5" Class="pa-4" Align="Align.Center">Nobody attended.</MudTd>
+                    </NoRecordsContent>
+                </MudTable>
+            }
+        </MudPaper>
+    }
+
+    @* ---------- Agenda (and voting during the meeting) ---------- *@
+    <MudPaper Class="pa-4 mt-4" Elevation="2">
+        <MudText Typo="Typo.h6" Class="mb-2">Agenda</MudText>
+        @foreach (var item in _a.Agenda)
+        {
+            <MudPaper Outlined="true" Class="pa-3 mb-3">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.subtitle1"><b>@item.Order. @item.Title</b></MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudChip Size="Size.Small" Variant="Variant.Outlined">@(item.RequiresVote ? AssemblyLabels.VotingType(item.VotingType) : "Informational")</MudChip>
+                        @if (item.IsFinalized || _a.Status == AssemblyStatus.Completed)
+                        {
+                            <MudChip Size="Size.Small" Color="@AssemblyLabels.ResultColor(item.Result, item.RequiresVote)">@AssemblyLabels.Result(item.Result, item.RequiresVote)</MudChip>
+                        }
+                        @if (_canManage && _a.Status == AssemblyStatus.Scheduled)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" Title="Remove item"
+                                           Disabled="@(_busy || _a.Agenda.Count == 1)"
+                                           OnClick="@(() => Run(() => AssemblyService.RemoveAgendaItemAsync(BuildingId, AssemblyId, item.Id), "Item removed"))" />
+                        }
+                    </MudStack>
+                </MudStack>
+                @if (!string.IsNullOrWhiteSpace(item.Description))
+                {
+                    <MudText Typo="Typo.body2" Class="mt-1" Style="white-space: pre-line;">@item.Description</MudText>
+                }
+
+                @if (item.RequiresVote && (item.Votes.Count > 0 || item.IsFinalized))
+                {
+                    <MudText Typo="Typo.body2" Class="mt-2">
+                        For @Shares(item.VotesFor) · Against @Shares(item.VotesAgainst) · Abstain @Shares(item.VotesAbstain)
+                    </MudText>
+                }
+
+                @if (_canManage && _a.Status == AssemblyStatus.InProgress && !item.IsFinalized)
+                {
+                    @if (item.RequiresVote)
+                    {
+                        @if (_a.QuorumAchieved != true)
+                        {
+                            <MudText Typo="Typo.body2" Class="mt-2">Voting opens once quorum is reached.</MudText>
+                        }
+                        else
+                        {
+                            <MudTable Items="@_a.Attendance" Dense="true" Elevation="0" Class="mt-2" Breakpoint="Breakpoint.None">
+                                <RowTemplate>
+                                    <MudTd Style="width: 40%;">Unit @context.UnitNumber (@Shares(context.VotingShare))</MudTd>
+                                    <MudTd>
+                                        <MudButtonGroup Size="Size.Small" OverrideStyles="false">
+                                            @foreach (var choice in Enum.GetValues<VoteChoice>())
+                                            {
+                                                var unit = context.UnitNumber;
+                                                var current = item.Votes.FirstOrDefault(v => v.UnitNumber == unit)?.Choice;
+                                                <MudButton Size="Size.Small" Disabled="@_busy"
+                                                           Variant="@(current == choice ? Variant.Filled : Variant.Outlined)"
+                                                           Color="@VoteColor(choice)"
+                                                           OnClick="@(() => Run(() => AssemblyService.RecordVoteAsync(BuildingId, AssemblyId, item.Id, unit, choice), null))">
+                                                    @AssemblyLabels.Vote(choice)
+                                                </MudButton>
+                                            }
+                                        </MudButtonGroup>
+                                    </MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="mt-2" Disabled="@(_busy || _a.QuorumAchieved != true)"
+                                   OnClick="@(() => Run(() => AssemblyService.FinalizeAgendaItemAsync(BuildingId, AssemblyId, item.Id), "Voting closed"))">
+                            Close voting
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="mt-2" Disabled="@_busy"
+                                   OnClick="@(() => Run(() => AssemblyService.FinalizeAgendaItemAsync(BuildingId, AssemblyId, item.Id), null))">
+                            Mark as dealt with
+                        </MudButton>
+                    }
+                }
+            </MudPaper>
+        }
+
+        @if (_canManage && _a.Status == AssemblyStatus.Scheduled)
+        {
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_newItemTitle" Label="New agenda item" />
+                </MudItem>
+                <MudItem xs="7" md="3">
+                    <MudSelect T="VotingType" @bind-Value="_newItemVotingType" Label="Decision needs" Disabled="@(!_newItemRequiresVote)">
+                        <MudSelectItem Value="VotingType.Simple">Simple majority</MudSelectItem>
+                        <MudSelectItem Value="VotingType.TwoThirds">Two-thirds majority</MudSelectItem>
+                        <MudSelectItem Value="VotingType.Unanimous">Unanimous</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="5" md="3">
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudSwitch T="bool" @bind-Checked="_newItemRequiresVote" Label="Vote" Color="Color.Primary" />
+                        <MudButton Variant="Variant.Outlined" Disabled="@(_busy || string.IsNullOrWhiteSpace(_newItemTitle))" OnClick="AddItem">Add</MudButton>
+                    </MudStack>
+                </MudItem>
+            </MudGrid>
+        }
+    </MudPaper>
+
+    @* ---------- Notes / minutes text ---------- *@
+    @if (_canManage && _a.Status is AssemblyStatus.Scheduled or AssemblyStatus.NoticeSent or AssemblyStatus.InProgress)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Notes for the minutes</MudText>
+            <MudTextField @bind-Value="_notes" Lines="4" Variant="Variant.Outlined" Placeholder="Discussion, remarks, decisions in words..." />
+            <MudButton Variant="Variant.Outlined" Class="mt-2" Disabled="@(_busy || _notes == _a.Notes)"
+                       OnClick="@(() => Run(() => AssemblyService.SetNotesAsync(BuildingId, AssemblyId, _notes), "Notes saved"))">
+                Save notes
+            </MudButton>
+        </MudPaper>
+    }
+    else if (!string.IsNullOrWhiteSpace(_a.Notes))
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Notes</MudText>
+            <MudText Typo="Typo.body2" Style="white-space: pre-line;">@_a.Notes</MudText>
+        </MudPaper>
+    }
+
+    @* ---------- Repeated session after a first session without quorum ---------- *@
+    @if (_canManage && _a.Status == AssemblyStatus.Completed && _a.SessionType == SessionType.First && _a.QuorumAchieved == false)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Schedule the repeated session</MudText>
+            <MudText Typo="Typo.body2" Class="mb-2">
+                The first session did not reach quorum. A repeated session with the same agenda needs only one third of all votes.
+            </MudText>
+            <MudGrid>
+                <MudItem xs="12" sm="4"><MudDatePicker @bind-Date="_repeatDate" Label="Date" MinDate="DateTime.Today" DateFormat="yyyy-MM-dd" /></MudItem>
+                <MudItem xs="12" sm="2"><MudTimePicker @bind-Time="_repeatTime" Label="Time" AmPm="false" /></MudItem>
+                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_repeatLocation" Label="Location" /></MudItem>
+            </MudGrid>
+            @if (RepeatTime is { } repeatAt && repeatAt > DateTime.Now && repeatAt - DateTime.Now < TimeSpan.FromDays(3))
+            {
+                <MudCheckBox T="bool" @bind-Checked="_repeatShortNotice" Label="Less than 3 days' notice: schedule anyway" Dense="true" />
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-2" Disabled="@_busy" OnClick="ScheduleRepeat">
+                Schedule repeated session
+            </MudButton>
+        </MudPaper>
+    }
+
+    @* ---------- End or cancel ---------- *@
+    @if (_canManage && _a.Status is AssemblyStatus.Scheduled or AssemblyStatus.NoticeSent or AssemblyStatus.InProgress)
+    {
+        <MudStack Row="true" Spacing="2" Class="mt-4">
+            @if (_a.Status == AssemblyStatus.InProgress)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="@_busy" OnClick="Complete">Complete meeting</MudButton>
+            }
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@_busy" OnClick="Cancel">Cancel assembly</MudButton>
+        </MudStack>
+    }
+}
+
+@code {
+    [Parameter] public string BuildingId { get; set; } = string.Empty;
+    [Parameter] public Guid AssemblyId { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private AssemblyDetails? _a;
+    private string? _loadError;
+    private string? _error;
+    private bool _busy;
+    private bool _canManage;
+
+    private bool _postedWithNotice = true;
+    private List<AttendanceRow> _attendanceRows = new();
+    private Dictionary<string, string> _ownerNames = new();
+    private string? _notes;
+
+    private string _newItemTitle = string.Empty;
+    private VotingType _newItemVotingType = VotingType.Simple;
+    private bool _newItemRequiresVote = true;
+
+    private DateTime? _repeatDate = DateTime.Today.AddDays(8);
+    private TimeSpan? _repeatTime = new TimeSpan(18, 0, 0);
+    private string? _repeatLocation;
+    private bool _repeatShortNotice;
+
+    private DateTime? RepeatTime => _repeatDate is { } d && _repeatTime is { } t ? d.Date + t : null;
+
+    /// <summary>Mirrors the server rule: a meeting opens at most an hour before the announced time.</summary>
+    private bool CanStartNow => _a is not null && DateTime.UtcNow >= _a.Date.AddHours(-1);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthState is not null)
+        {
+            _canManage = UserRoles.CanManage((await AuthState).User);
+        }
+
+        try
+        {
+            Show(await AssemblyService.GetAssemblyAsync(BuildingId, AssemblyId));
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+            return;
+        }
+
+        if (_canManage)
+        {
+            try
+            {
+                // Owner names pre-fill the attendee column; best effort.
+                var residents = await BuildingService.GetResidentsAsync(BuildingId);
+                _ownerNames = residents
+                    .Where(r => r.UnitNumber is not null && r.Role is ResidentRole.Owner or ResidentRole.CoOwner)
+                    .GroupBy(r => r.UnitNumber!)
+                    .ToDictionary(g => g.Key, g => string.Join(", ", g.Select(r => $"{r.FirstName} {r.LastName}")));
+                Show(_a!);
+            }
+            catch
+            {
+                // Names are a convenience only.
+            }
+        }
+    }
+
+    /// <summary>Takes a fresh copy of the assembly and rebuilds the editable rows from it.</summary>
+    private void Show(AssemblyDetails assembly)
+    {
+        _a = assembly;
+        _notes = assembly.Notes;
+        _repeatLocation ??= assembly.Location;
+
+        var attendance = assembly.Attendance.ToDictionary(a => a.UnitNumber);
+        _attendanceRows = assembly.EligibleUnits.Select(u =>
+        {
+            attendance.TryGetValue(u.UnitNumber, out var recorded);
+            _ownerNames.TryGetValue(u.UnitNumber, out var owner);
+            return new AttendanceRow(u.UnitNumber, u.VotingShare, recorded, owner);
+        }).ToList();
+    }
+
+    /// <summary>Runs an API action, shows the updated assembly, and reports errors inline.</summary>
+    private async Task Run(Func<Task<AssemblyDetails>> action, string? successMessage)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            Show(await action());
+            if (successMessage is not null)
+            {
+                Snackbar.Add(successMessage, Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private Task SaveAttendance(AttendanceRow row) => row.Type == 0
+        ? Run(() => AssemblyService.RemoveAttendanceAsync(BuildingId, AssemblyId, row.Unit), $"Unit {row.Unit} marked absent")
+        : Run(() => AssemblyService.RecordAttendanceAsync(BuildingId, AssemblyId, new AttendanceDraft
+        {
+            UnitNumber = row.Unit,
+            Type = (AttendanceType)row.Type,
+            AttendeeName = row.AttendeeName,
+            ProxyHolderName = row.ProxyHolder
+        }), $"Attendance saved for unit {row.Unit}");
+
+    private async Task AddItem()
+    {
+        await Run(() => AssemblyService.AddAgendaItemAsync(BuildingId, AssemblyId, new AgendaItemDraft
+        {
+            Title = _newItemTitle.Trim(),
+            VotingType = _newItemVotingType,
+            RequiresVote = _newItemRequiresVote
+        }), "Item added");
+        if (_error is null)
+        {
+            _newItemTitle = string.Empty;
+        }
+    }
+
+    private async Task Complete()
+    {
+        var message = _a!.QuorumAchieved == true
+            ? "Complete the meeting? The minutes become final."
+            : "Quorum was not reached, so no decisions are made. Complete the meeting anyway?" +
+              (_a.SessionType == SessionType.First ? " You can then schedule a repeated session." : "");
+        if (await DialogService.ShowMessageBox("Complete meeting", message, yesText: "Complete", cancelText: "Back") == true)
+        {
+            await Run(() => AssemblyService.CompleteAsync(BuildingId, AssemblyId), "Meeting completed");
+        }
+    }
+
+    private async Task Cancel()
+    {
+        if (await DialogService.ShowMessageBox("Cancel assembly", "Cancel this assembly? This cannot be undone.",
+                yesText: "Cancel assembly", cancelText: "Back") == true)
+        {
+            await Run(() => AssemblyService.CancelAsync(BuildingId, AssemblyId), "Assembly cancelled");
+        }
+    }
+
+    private async Task ScheduleRepeat()
+    {
+        _error = null;
+        if (RepeatTime is not { } at || at <= DateTime.Now)
+        {
+            _error = "Choose a future date and time for the repeated session.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var repeated = await AssemblyService.ScheduleRepeatAsync(BuildingId, AssemblyId,
+                DateTime.SpecifyKind(at, DateTimeKind.Local).ToUniversalTime(), _repeatLocation, _repeatShortNotice);
+            Navigation.NavigateTo(AssemblyUrl(repeated.Id));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string AssemblyUrl(Guid id) => $"/buildings/{Uri.EscapeDataString(BuildingId)}/assemblies/{id}";
+
+    private static string Local(DateTime? utc) => utc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "";
+
+    private static string Shares(decimal share) => $"{share:0.##}%";
+
+    private static Color VoteColor(VoteChoice choice) => choice switch
+    {
+        VoteChoice.For => Color.Success,
+        VoteChoice.Against => Color.Error,
+        _ => Color.Default
+    };
+
+    /// <summary>Editable attendance row; Type 0 means absent.</summary>
+    private sealed class AttendanceRow
+    {
+        private readonly int _savedType;
+        private readonly string? _savedAttendee;
+        private readonly string? _savedProxy;
+
+        public AttendanceRow(string unit, decimal share, AttendanceInfo? recorded, string? ownerName)
+        {
+            Unit = unit;
+            Share = share;
+            Type = _savedType = recorded is null ? 0 : (int)recorded.Type;
+            AttendeeName = _savedAttendee = recorded?.AttendeeName ?? ownerName;
+            ProxyHolder = _savedProxy = recorded?.ProxyHolderName;
+            if (recorded is null)
+            {
+                // Only the type counts as a change for an absent unit.
+                _savedAttendee = AttendeeName;
+            }
+        }
+
+        public string Unit { get; }
+        public decimal Share { get; }
+        public int Type { get; set; }
+        public string? AttendeeName { get; set; }
+        public string? ProxyHolder { get; set; }
+
+        public bool IsDirty => Type != _savedType || (Type != 0 && (AttendeeName != _savedAttendee || ProxyHolder != _savedProxy));
+    }
+}

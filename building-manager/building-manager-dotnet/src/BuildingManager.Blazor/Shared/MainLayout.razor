@@ -11,7 +11,7 @@
 <MudLayout>
     <MudAppBar Elevation="1">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@ToggleDrawer" />
-        <MudText H5="true" Class="ml-3">Building Manager</MudText>
+        <MudText Typo="Typo.h5" Class="ml-3">Building Manager</MudText>
 
         @if (_buildings.Count > 0)
         {
@@ -56,6 +56,7 @@
             <MudNavLink Href="/workorders" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Build">Work Orders</MudNavLink>
             <MudNavLink Href="/keys" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.VpnKey">Keys</MudNavLink>
             <MudNavLink Href="/finance" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.AttachMoney">Finance</MudNavLink>
+            <MudNavLink Href="/assemblies" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.HowToVote">Assemblies</MudNavLink>
         </MudNavMenu>
     </MudDrawer>
 

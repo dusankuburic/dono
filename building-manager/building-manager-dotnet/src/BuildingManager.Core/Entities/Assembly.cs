@@ -1,4 +1,5 @@
 using BuildingManager.Core.Enums;
+using BuildingManager.Core.Rules;
 
 namespace BuildingManager.Core.Entities;
 
@@ -83,18 +84,8 @@ public class Assembly : BaseEntity
     public void CheckQuorum(decimal totalEligibleVotes)
     {
         var presentVotes = _attendances.Sum(a => a.VotingShare);
-        QuorumPercentage = totalEligibleVotes > 0 ? (presentVotes / totalEligibleVotes) * 100 : 0;
-
-        // Compare shares instead of computed percentages: percentage division
-        // rounds and would reject an exactly-one-third attendance.
-        QuorumAchieved = SessionType switch
-        {
-            // First session: at least 51% of all eligible votes.
-            SessionType.First => totalEligibleVotes > 0 && presentVotes * 100 >= totalEligibleVotes * 51m,
-            // Repeated session: at least one third of all eligible votes.
-            SessionType.Repeated => totalEligibleVotes > 0 && presentVotes * 3 >= totalEligibleVotes,
-            _ => false
-        };
+        QuorumPercentage = AssemblyRules.QuorumPercentage(presentVotes, totalEligibleVotes);
+        QuorumAchieved = AssemblyRules.IsQuorumAchieved(SessionType, presentVotes, totalEligibleVotes);
 
         MarkAsUpdated();
     }

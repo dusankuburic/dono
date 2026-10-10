@@ -1,0 +1,101 @@
+@page "/assemblies"
+@inject IAssemblyService AssemblyService
+@inject IBuildingSelectionService BuildingSelection
+@inject NavigationManager Navigation
+
+<PageTitle>Assemblies</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+    <MudText Typo="Typo.h3">Assemblies</MudText>
+    @if (_canManage && _buildingId is not null)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Href="/assemblies/new">
+            New assembly
+        </MudButton>
+    }
+</MudStack>
+
+@if (_noBuildings)
+{
+    <MudAlert Severity="Severity.Info">
+        No buildings yet. <MudLink Href="/buildings/new">Create a building</MudLink> first.
+    </MudAlert>
+}
+else if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error">@_error</MudAlert>
+}
+else if (_assemblies is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudTable Items="@_assemblies" Hover="true" Breakpoint="Breakpoint.Sm"
+              OnRowClick="@((TableRowClickEventArgs<AssemblySummary> e) => Open(e.Item))" Style="cursor: pointer;">
+        <HeaderContent>
+            <MudTh>Date</MudTh>
+            <MudTh>Location</MudTh>
+            <MudTh>Session</MudTh>
+            <MudTh>Agenda items</MudTh>
+            <MudTh>Quorum</MudTh>
+            <MudTh>Status</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Date">@context.Date.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+            <MudTd DataLabel="Location">@context.Location</MudTd>
+            <MudTd DataLabel="Session">@AssemblyLabels.Session(context.SessionType)</MudTd>
+            <MudTd DataLabel="Agenda items">@context.AgendaItemCount</MudTd>
+            <MudTd DataLabel="Quorum">
+                @if (context.QuorumAchieved is { } quorum)
+                {
+                    <MudChip Size="Size.Small" Color="@(quorum ? Color.Success : Color.Error)">@(quorum ? "Reached" : "Not reached")</MudChip>
+                }
+            </MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip Size="Size.Small" Color="@AssemblyLabels.StatusColor(context.Status)">@AssemblyLabels.Status(context.Status)</MudChip>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No assemblies yet.</MudTd>
+        </NoRecordsContent>
+    </MudTable>
+}
+
+@code {
+    private string? _buildingId;
+    private bool _noBuildings;
+    private bool _canManage;
+    private List<AssemblySummary>? _assemblies;
+    private string? _error;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            _canManage = UserRoles.CanManage((await AuthState).User);
+        }
+
+        _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+        if (_buildingId is null)
+        {
+            _noBuildings = true;
+            return;
+        }
+
+        try
+        {
+            _assemblies = await AssemblyService.GetAssembliesAsync(_buildingId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void Open(AssemblySummary assembly) =>
+        Navigation.NavigateTo($"/buildings/{Uri.EscapeDataString(_buildingId!)}/assemblies/{assembly.Id}");
+}

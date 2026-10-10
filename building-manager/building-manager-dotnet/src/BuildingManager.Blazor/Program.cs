@@ -39,5 +39,6 @@ builder.Services.AddMudServices();
 
 builder.Services.AddScoped<IBuildingService, BuildingService>();
 builder.Services.AddScoped<IBuildingSelectionService, BuildingSelectionService>();
+builder.Services.AddScoped<IAssemblyService, AssemblyService>();
 
 await builder.Build().RunAsync();

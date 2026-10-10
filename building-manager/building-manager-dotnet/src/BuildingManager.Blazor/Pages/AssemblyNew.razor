@@ -1,0 +1,176 @@
+@page "/assemblies/new"
+@inject IAssemblyService AssemblyService
+@inject IBuildingSelectionService BuildingSelection
+@inject NavigationManager Navigation
+
+<PageTitle>New assembly</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">New assembly</MudText>
+
+@if (!_canManage)
+{
+    <MudAlert Severity="Severity.Info">Only building managers can schedule assemblies.</MudAlert>
+}
+else if (_buildingId is null)
+{
+    <MudAlert Severity="Severity.Info">
+        No buildings yet. <MudLink Href="/buildings/new">Create a building</MudLink> first.
+    </MudAlert>
+}
+else
+{
+    <MudPaper Class="pa-4" Elevation="2">
+        <MudGrid>
+            <MudItem xs="12" sm="4">
+                <MudDatePicker @bind-Date="_date" Label="Date" MinDate="DateTime.Today" DateFormat="yyyy-MM-dd" />
+            </MudItem>
+            <MudItem xs="12" sm="2">
+                <MudTimePicker @bind-Time="_time" Label="Time" AmPm="false" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField @bind-Value="_location" Label="Location" Placeholder="e.g. ground floor lobby" />
+            </MudItem>
+        </MudGrid>
+
+        @if (MeetingTime is { } meeting && meeting > DateTime.Now && meeting - DateTime.Now < TimeSpan.FromDays(3))
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-4">
+                Owners must get at least 3 days' notice; this meeting is sooner than that.
+                <MudCheckBox T="bool" @bind-Checked="_allowShortNotice" Label="Schedule with short notice anyway" Dense="true" />
+            </MudAlert>
+        }
+
+        <MudText Typo="Typo.h6" Class="mt-6 mb-2">Agenda</MudText>
+        @for (var i = 0; i < _agenda.Count; i++)
+        {
+            var row = _agenda[i];
+            var number = i + 1;
+            <MudPaper Outlined="true" Class="pa-3 mb-3">
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="row.Title" Label="@($"Item {number}")" Placeholder="e.g. Facade repair" />
+                    </MudItem>
+                    <MudItem xs="7" md="3">
+                        <MudSelect T="VotingType" @bind-Value="row.VotingType" Label="Decision needs" Disabled="@(!row.RequiresVote)">
+                            <MudSelectItem Value="VotingType.Simple">Simple majority</MudSelectItem>
+                            <MudSelectItem Value="VotingType.TwoThirds">Two-thirds majority</MudSelectItem>
+                            <MudSelectItem Value="VotingType.Unanimous">Unanimous</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="5" md="3">
+                        <MudStack Row="true" AlignItems="AlignItems.Center">
+                            <MudSwitch T="bool" @bind-Checked="row.RequiresVote" Label="Vote" Color="Color.Primary" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Title="Remove item"
+                                           Disabled="@(_agenda.Count == 1)" OnClick="@(() => _agenda.Remove(row))" />
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="row.Description" Label="Description (optional)" Lines="2" />
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        }
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => _agenda.Add(new AgendaRow()))">
+            Add agenda item
+        </MudButton>
+
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-4">@_error</MudAlert>
+        }
+
+        <MudStack Row="true" Spacing="2" Class="mt-4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Submit" Disabled="@_busy">
+                @(_busy ? "Scheduling..." : "Schedule assembly")
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" Href="/assemblies">Cancel</MudButton>
+        </MudStack>
+    </MudPaper>
+}
+
+@code {
+    private string? _buildingId;
+    private bool _canManage;
+    private DateTime? _date = DateTime.Today.AddDays(7);
+    private TimeSpan? _time = new TimeSpan(18, 0, 0);
+    private string _location = string.Empty;
+    private bool _allowShortNotice;
+    private List<AgendaRow> _agenda = new() { new AgendaRow() };
+    private string? _error;
+    private bool _busy;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>The meeting time in the browser's local time zone.</summary>
+    private DateTime? MeetingTime => _date is { } date && _time is { } time ? date.Date + time : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            _canManage = UserRoles.CanManage((await AuthState).User);
+        }
+        _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+    }
+
+    private async Task Submit()
+    {
+        _error = null;
+        if (MeetingTime is not { } meeting)
+        {
+            _error = "Choose the date and time of the meeting.";
+            return;
+        }
+        if (meeting <= DateTime.Now)
+        {
+            _error = "The meeting must be in the future.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_location))
+        {
+            _error = "Enter where the meeting takes place.";
+            return;
+        }
+        if (_agenda.Any(r => string.IsNullOrWhiteSpace(r.Title)))
+        {
+            _error = "Every agenda item needs a title.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var details = await AssemblyService.ScheduleAsync(_buildingId!, new ScheduleAssemblyRequest
+            {
+                Date = DateTime.SpecifyKind(meeting, DateTimeKind.Local).ToUniversalTime(),
+                Location = _location.Trim(),
+                AllowShortNotice = _allowShortNotice,
+                Agenda = _agenda.Select(r => new AgendaItemDraft
+                {
+                    Title = r.Title.Trim(),
+                    Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim(),
+                    VotingType = r.VotingType,
+                    RequiresVote = r.RequiresVote
+                }).ToList()
+            });
+            Navigation.NavigateTo($"/buildings/{Uri.EscapeDataString(_buildingId!)}/assemblies/{details.Id}");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private sealed class AgendaRow
+    {
+        public string Title { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public VotingType VotingType { get; set; } = VotingType.Simple;
+        public bool RequiresVote { get; set; } = true;
+    }
+}

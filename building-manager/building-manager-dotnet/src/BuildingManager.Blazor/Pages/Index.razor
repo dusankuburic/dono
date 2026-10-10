@@ -4,7 +4,7 @@
 
 <PageTitle>Dashboard</PageTitle>
 
-<MudText H3="true" Class="mb-4">Dashboard</MudText>
+<MudText Typo="Typo.h3" Class="mb-4">Dashboard</MudText>
 
 @if (_noBuildings)
 {
@@ -27,7 +27,7 @@ else
                     <MudIcon Icon="@Icons.Material.Filled.Apartment" Color="Color.Primary" Size="Size.Large" />
                     <MudStack Spacing="0">
                         <MudText Typo="Typo.body2" Color="Color.Secondary">Buildings</MudText>
-                        <MudText H5="true">@_buildingCount</MudText>
+                        <MudText Typo="Typo.h5">@_buildingCount</MudText>
                     </MudStack>
                 </MudStack>
             </MudPaper>
@@ -39,7 +39,7 @@ else
                     <MudIcon Icon="@Icons.Material.Filled.People" Color="Color.Info" Size="Size.Large" />
                     <MudStack Spacing="0">
                         <MudText Typo="Typo.body2" Color="Color.Secondary">Residents</MudText>
-                        <MudText H5="true">@_residentCount</MudText>
+                        <MudText Typo="Typo.h5">@_residentCount</MudText>
                     </MudStack>
                 </MudStack>
             </MudPaper>
@@ -51,7 +51,7 @@ else
                     <MudIcon Icon="@Icons.Material.Filled.Build" Color="Color.Warning" Size="Size.Large" />
                     <MudStack Spacing="0">
                         <MudText Typo="Typo.body2" Color="Color.Secondary">Open Work Orders</MudText>
-                        <MudText H5="true">@_openWorkOrders</MudText>
+                        <MudText Typo="Typo.h5">@_openWorkOrders</MudText>
                     </MudStack>
                 </MudStack>
             </MudPaper>
@@ -63,7 +63,7 @@ else
                     <MudIcon Icon="@Icons.Material.Filled.VpnKey" Color="Color.Secondary" Size="Size.Large" />
                     <MudStack Spacing="0">
                         <MudText Typo="Typo.body2" Color="Color.Secondary">Keys Out</MudText>
-                        <MudText H5="true">@_keysOut</MudText>
+                        <MudText Typo="Typo.h5">@_keysOut</MudText>
                     </MudStack>
                 </MudStack>
             </MudPaper>
@@ -71,7 +71,7 @@ else
     </MudGrid>
 }
 
-<MudText H5="true" Class="mt-6 mb-4">Quick Actions</MudText>
+<MudText Typo="Typo.h5" Class="mt-6 mb-4">Quick Actions</MudText>
 
 <MudGrid>
     <MudItem xs="12" sm="6" md="3">

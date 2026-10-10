@@ -190,14 +190,14 @@ public class AuthService : IAuthService
     public async Task ForgotPasswordAsync(string email)
     {
         var response = await _httpClient.PostAsJsonAsync("/api/auth/forgot-password", new { Email = email });
-        await EnsureSuccessAsync(response, "Could not request a password reset.");
+        await ApiErrors.EnsureSuccessAsync(response, "Could not request a password reset.");
     }
 
     public async Task ResetPasswordAsync(string email, string resetToken, string newPassword)
     {
         var response = await _httpClient.PostAsJsonAsync("/api/auth/reset-password",
             new { Email = email, ResetToken = resetToken, NewPassword = newPassword });
-        await EnsureSuccessAsync(response, "Could not reset the password.");
+        await ApiErrors.EnsureSuccessAsync(response, "Could not reset the password.");
     }
 
     public async Task ChangePasswordAsync(string currentPassword, string newPassword)
@@ -217,7 +217,7 @@ public class AuthService : IAuthService
             throw new InvalidOperationException("Your session has expired. Please sign in again.");
         }
 
-        await EnsureSuccessAsync(response, "Could not change the password.");
+        await ApiErrors.EnsureSuccessAsync(response, "Could not change the password.");
         await ClearTokensAsync();
 
         async Task<HttpResponseMessage> SendWithTokenAsync(object content)
@@ -235,34 +235,6 @@ public class AuthService : IAuthService
             return await _httpClient.SendAsync(request);
         }
     }
-
-    /// <summary>Throws with the API's ProblemDetails message (or the fallback) on a non-success response.</summary>
-    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string fallbackMessage)
-    {
-        if (response.IsSuccessStatusCode)
-        {
-            return;
-        }
-
-        if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
-        {
-            throw new InvalidOperationException("Too many attempts. Please wait a minute and try again.");
-        }
-
-        ProblemResponse? problem = null;
-        try
-        {
-            problem = await response.Content.ReadFromJsonAsync<ProblemResponse>();
-        }
-        catch
-        {
-            // Not a ProblemDetails body; use the fallback message.
-        }
-
-        throw new InvalidOperationException(problem?.Detail ?? problem?.Title ?? fallbackMessage);
-    }
-
-    private sealed record ProblemResponse(string? Title, string? Detail);
 
     private async Task StoreTokensAsync(AuthResponse auth)
     {

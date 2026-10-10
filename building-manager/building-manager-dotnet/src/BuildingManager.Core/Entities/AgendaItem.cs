@@ -1,4 +1,5 @@
 using BuildingManager.Core.Enums;
+using BuildingManager.Core.Rules;
 
 namespace BuildingManager.Core.Entities;
 
@@ -72,20 +73,9 @@ public class AgendaItem : BaseEntity
         VotesAgainst = _votes.Where(v => v.Choice == VoteChoice.Against).Sum(v => v.VotingShare);
         VotesAbstain = _votes.Where(v => v.Choice == VoteChoice.Abstain).Sum(v => v.VotingShare);
 
-        var totalVotes = VotesFor.Value + VotesAgainst.Value + VotesAbstain.Value;
-
-        // Compare with exact fractions instead of rounded percentages so that
-        // an exact two-thirds result (66.666...%) is not rejected.
-        Result = VotingType switch
-        {
-            VotingType.Unanimous when totalVotes > 0
-                && VotesAgainst.Value == 0 && VotesAbstain.Value == 0 => VoteResult.Passed,
-            VotingType.TwoThirds when totalVotes > 0
-                && VotesFor.Value * 3 >= totalVotes * 2 => VoteResult.Passed,
-            VotingType.Simple when totalVotes > 0
-                && VotesFor.Value * 2 > totalVotes => VoteResult.Passed,
-            _ => VoteResult.Failed
-        };
+        Result = AssemblyRules.IsPassed(VotingType, VotesFor.Value, VotesAgainst.Value, VotesAbstain.Value)
+            ? VoteResult.Passed
+            : VoteResult.Failed;
 
         IsFinalized = true;
         MarkAsUpdated();

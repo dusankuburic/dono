@@ -16,7 +16,7 @@ else if (_summary is null)
 }
 else
 {
-    <MudText H3="true" Class="mb-1">@_summary.Name</MudText>
+    <MudText Typo="Typo.h3" Class="mb-1">@_summary.Name</MudText>
     <MudText Typo="Typo.body1" Class="mb-4">@_summary.Street @_summary.StreetNumber, @_summary.City</MudText>
 
     <MudGrid Class="mb-4">
@@ -24,7 +24,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Units</MudText>
-                    <MudText H5="true">@_summary.UnitCount</MudText>
+                    <MudText Typo="Typo.h5">@_summary.UnitCount</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -32,7 +32,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Active Residents</MudText>
-                    <MudText H5="true">@_summary.ResidentCount</MudText>
+                    <MudText Typo="Typo.h5">@_summary.ResidentCount</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -40,7 +40,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Keys Checked Out</MudText>
-                    <MudText H5="true">@_summary.KeysCheckedOut</MudText>
+                    <MudText Typo="Typo.h5">@_summary.KeysCheckedOut</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -48,13 +48,13 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Open Work Orders</MudText>
-                    <MudText H5="true">@_summary.OpenWorkOrders</MudText>
+                    <MudText Typo="Typo.h5">@_summary.OpenWorkOrders</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
     </MudGrid>
 
-    <MudText H5="true" Class="mb-2">Units</MudText>
+    <MudText Typo="Typo.h5" Class="mb-2">Units</MudText>
 
     <MudTable Items="@_units" Hover="true" Breakpoint="Breakpoint.Sm">
         <HeaderContent>
@@ -82,7 +82,7 @@ else
 
     @if (_canManage)
     {
-        <MudText H5="true" Class="mt-6 mb-2">Access</MudText>
+        <MudText Typo="Typo.h5" Class="mt-6 mb-2">Access</MudText>
         <MudText Typo="Typo.body2" Class="mb-2">
             People who can see this building. Residents need access to report work orders.
         </MudText>
@@ -130,9 +130,6 @@ else
 }
 
 @code {
-    // Mirrors the API's ManageOnly policy; the API enforces it regardless.
-    private static readonly string[] ManageRoles = { "Manager", "SubstituteManager", "Admin", "CompanyAdmin" };
-
     private BuildingSummary? _summary;
     private List<UnitInfo> _units = new();
     private string? _loadError;
@@ -174,7 +171,7 @@ else
         {
             var user = (await AuthState).User;
             _currentEmail = user.FindFirst("email")?.Value;
-            _canManage = ManageRoles.Any(user.IsInRole);
+            _canManage = UserRoles.CanManage(user);
         }
 
         if (_canManage)

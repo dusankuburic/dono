@@ -8,7 +8,7 @@ namespace BuildingManager.Api.Middleware;
 /// KeyNotFoundException -> 404, ArgumentException -> 400 (invalid input),
 /// InvalidOperationException -> 409 (business rule violation).
 /// </summary>
-public class GlobalExceptionHandler : IExceptionHandler
+public partial class GlobalExceptionHandler : IExceptionHandler
 {
     private readonly ILogger<GlobalExceptionHandler> _logger;
 
@@ -47,11 +47,24 @@ public class GlobalExceptionHandler : IExceptionHandler
             Title = title,
             Detail = statusCode == StatusCodes.Status500InternalServerError
                 ? null // never leak internals for unexpected failures
-                : exception.Message
+                : UserFacingMessage(exception)
         };
 
         httpContext.Response.StatusCode = statusCode;
         await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
         return true;
     }
+
+    /// <summary>
+    /// ArgumentException appends " (Parameter 'name')" to its message, which
+    /// means nothing to the user reading the error; drop it. Matched as text
+    /// because exceptions rethrown from grains keep the message but lose ParamName.
+    /// </summary>
+    private static string UserFacingMessage(Exception exception) =>
+        exception is ArgumentException
+            ? ParameterSuffix().Replace(exception.Message, string.Empty)
+            : exception.Message;
+
+    [System.Text.RegularExpressions.GeneratedRegex(@" \(Parameter '[^']*'\)$")]
+    private static partial System.Text.RegularExpressions.Regex ParameterSuffix();
 }

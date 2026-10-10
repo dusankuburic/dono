@@ -3,7 +3,7 @@
 @inject IBuildingSelectionService BuildingSelection
 @inject NavigationManager Navigation
 
-<MudText H4="true" Class="mb-4">Add New Building</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Add New Building</MudText>
 
 <MudPaper Class="pa-4" Elevation="2">
     <EditForm Model="@_building" OnValidSubmit="HandleSubmit">
@@ -33,10 +33,10 @@
                 <MudNumericField @bind-Value="_building.TotalAreaM2" Label="Total Area (m²)" Min="0" />
             </MudItem>
             <MudItem xs="12" md="3">
-                <MudSwitch @bind-Value="_building.HasElevator" Label="Has Elevator" T="bool" />
+                <MudSwitch @bind-Checked="_building.HasElevator" Label="Has Elevator" T="bool" />
             </MudItem>
             <MudItem xs="12" md="3">
-                <MudSwitch @bind-Value="_building.HasParking" Label="Has Parking" T="bool" />
+                <MudSwitch @bind-Checked="_building.HasParking" Label="Has Parking" T="bool" />
             </MudItem>
             @if (_error is not null)
             {

@@ -1,0 +1,154 @@
+@page "/buildings/{BuildingId}/assemblies/{AssemblyId:guid}/minutes"
+@inject IAssemblyService AssemblyService
+@inject IBuildingService BuildingService
+@inject IJSRuntime JS
+
+<PageTitle>Minutes</PageTitle>
+
+<HeadContent>
+    <style>
+        @@media print {
+            .mud-appbar, .mud-drawer, .no-print { display: none !important; }
+            .mud-main-content { padding: 0 !important; margin: 0 !important; }
+            .minutes { box-shadow: none !important; }
+        }
+        .minutes table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+        .minutes th, .minutes td { border: 1px solid #999; padding: 4px 8px; text-align: left; font-size: 0.9rem; }
+        .minutes .signature { display: inline-block; width: 30%; margin: 48px 1.5% 0; border-top: 1px solid #555; text-align: center; font-size: 0.85rem; }
+    </style>
+</HeadContent>
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error">@_error</MudAlert>
+}
+else if (_a is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudStack Row="true" Spacing="2" Class="mb-4 no-print">
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack"
+                   Href="@($"/buildings/{Uri.EscapeDataString(BuildingId)}/assemblies/{AssemblyId}")">Back to assembly</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Print" OnClick="Print">Print</MudButton>
+    </MudStack>
+
+    <MudPaper Class="pa-8 minutes" Elevation="2" Style="max-width: 900px;">
+        @if (_a.Status != AssemblyStatus.Completed)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-4">
+                Draft: the assembly is @AssemblyLabels.Status(_a.Status).ToLowerInvariant(), so these minutes are not final.
+            </MudAlert>
+        }
+
+        <MudText Typo="Typo.h5" Align="Align.Center">Minutes of the Assembly of Owners</MudText>
+        <MudText Typo="Typo.subtitle1" Align="Align.Center" Class="mb-6">
+            @(_building?.Name)@(_building is null ? "" : $", {_building.Street} {_building.StreetNumber}, {_building.City}")
+        </MudText>
+
+        <table>
+            <tr><th style="width: 30%;">Date and time</th><td>@_a.Date.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td></tr>
+            <tr><th>Location</th><td>@_a.Location</td></tr>
+            <tr><th>Session</th><td>@AssemblyLabels.Session(_a.SessionType)@(_a.SessionType == SessionType.Repeated ? " (the first session did not reach quorum)" : "")</td></tr>
+            <tr><th>Notice sent</th><td>@Local(_a.NoticeSentAt)@(_a.HasShortNotice ? " (less than 3 days before the meeting)" : "")</td></tr>
+            <tr><th>Notice posted in the building</th><td>@(_a.PhysicallyPostedAt is null ? "Not recorded" : Local(_a.PhysicallyPostedAt))</td></tr>
+            <tr><th>Meeting opened / closed</th><td>@Local(_a.StartedAt) / @Local(_a.CompletedAt)</td></tr>
+        </table>
+
+        <MudText Typo="Typo.h6">Attendance and quorum</MudText>
+        <MudText Typo="Typo.body2">
+            Owners holding @_a.QuorumPercentage.ToString("0.##")% of all votes were present
+            (@_a.Attendance.Count of @_a.EligibleUnits.Count units).
+            A @AssemblyLabels.Session(_a.SessionType).ToLowerInvariant() requires @AssemblyLabels.QuorumRule(_a.SessionType):
+            the quorum was <b>@(_a.QuorumAchieved == true ? "reached" : "not reached")</b>.
+        </MudText>
+        <table>
+            <tr><th>Unit</th><th>Share</th><th>Attendance</th><th>Attendee</th><th>Proxy holder</th></tr>
+            @foreach (var a in _a.Attendance)
+            {
+                <tr><td>@a.UnitNumber</td><td>@Shares(a.VotingShare)</td><td>@AssemblyLabels.Attendance(a.Type)</td><td>@a.AttendeeName</td><td>@a.ProxyHolderName</td></tr>
+            }
+            @if (_a.Attendance.Count == 0)
+            {
+                <tr><td colspan="5">Nobody attended.</td></tr>
+            }
+        </table>
+
+        <MudText Typo="Typo.h6">Agenda and decisions</MudText>
+        @if (_a.QuorumAchieved != true)
+        {
+            <MudText Typo="Typo.body2" Class="mb-2">Without quorum the assembly could not make decisions on the agenda below.</MudText>
+        }
+        @foreach (var item in _a.Agenda)
+        {
+            <MudText Typo="Typo.subtitle1" Class="mt-3"><b>@item.Order. @item.Title</b></MudText>
+            @if (!string.IsNullOrWhiteSpace(item.Description))
+            {
+                <MudText Typo="Typo.body2" Style="white-space: pre-line;">@item.Description</MudText>
+            }
+            @if (!item.RequiresVote)
+            {
+                <MudText Typo="Typo.body2">Informational item, not voted on.</MudText>
+            }
+            else if (item.IsFinalized)
+            {
+                <MudText Typo="Typo.body2">
+                    Required: @AssemblyLabels.VotingType(item.VotingType).ToLowerInvariant().
+                    For @Shares(item.VotesFor), against @Shares(item.VotesAgainst), abstained @Shares(item.VotesAbstain).
+                    Decision: <b>@AssemblyLabels.Result(item.Result, item.RequiresVote).ToLowerInvariant()</b>.
+                </MudText>
+                @if (item.Votes.Count > 0)
+                {
+                    <MudText Typo="Typo.caption">
+                        Votes by unit: @string.Join("; ", item.Votes.Select(v => $"{v.UnitNumber} {AssemblyLabels.Vote(v.Choice).ToLowerInvariant()}"))
+                    </MudText>
+                }
+            }
+            else
+            {
+                <MudText Typo="Typo.body2">No decision.</MudText>
+            }
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_a.Notes))
+        {
+            <MudText Typo="Typo.h6" Class="mt-4">Notes</MudText>
+            <MudText Typo="Typo.body2" Style="white-space: pre-line;">@_a.Notes</MudText>
+        }
+
+        <div class="mt-8">
+            <span class="signature">Chairperson</span>
+            <span class="signature">Minutes taken by</span>
+            <span class="signature">Verified by (two owners)</span>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public string BuildingId { get; set; } = string.Empty;
+    [Parameter] public Guid AssemblyId { get; set; }
+
+    private AssemblyDetails? _a;
+    private BuildingSummary? _building;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _a = await AssemblyService.GetAssemblyAsync(BuildingId, AssemblyId);
+            _building = await BuildingService.GetBuildingAsync(BuildingId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task Print() => await JS.InvokeVoidAsync("print");
+
+    private static string Local(DateTime? utc) => utc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-";
+
+    private static string Shares(decimal share) => $"{share:0.##}%";
+}

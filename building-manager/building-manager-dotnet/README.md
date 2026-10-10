@@ -127,6 +127,33 @@ hashes. Set `Jwt:Secret` (≥ 32 chars) in configuration before production use.
   Blazor client). Admins bypass access checks (and are not listed as members),
   and `GET /api/buildings` only lists buildings the caller can access.
 
+### Owners' assemblies
+
+`/api/buildings/{id}/assemblies` (Blazor: **Assemblies** in the menu). Anyone
+with access to the building can read assemblies and minutes; only management
+roles run them. One grain per assembly, keyed `{buildingId}|{assemblyId}`.
+
+1. **Schedule** with date, location and agenda (each item: simple, two-thirds
+   or unanimous majority, or informational). Dates in the past are rejected;
+   less than 3 days' notice needs `allowShortNotice`.
+2. **Record the notice** (and that it was posted in the building). The agenda
+   is fixed from then on.
+3. **Start** the meeting, at most an hour before the announced time. The units'
+   ownership shares are snapshotted as the voting basis.
+4. **Attendance** per unit: in person, proxy (holder required), written or
+   electronic. Quorum is computed from the shares: 51% for a first session,
+   one third for a repeated one.
+5. **Votes** per present unit and item, only while quorum is reached; closing an
+   item decides it by its majority rule (`AssemblyRules`, shared with the domain
+   model).
+6. **Complete**: with quorum every voted item must be decided first. Without
+   quorum no decisions are made and a first session can be followed by a
+   repeated session (`POST .../{assemblyId}/repeat`) with the same agenda.
+
+The Blazor client prints the minutes from `/buildings/{id}/assemblies/{assemblyId}/minutes`.
+Not yet implemented: sending notices/minutes to owners, reminders, PDF export,
+tracking owners who miss sessions.
+
 ## Architecture
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed documentation.

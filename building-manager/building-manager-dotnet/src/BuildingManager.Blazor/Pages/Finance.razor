@@ -5,7 +5,7 @@
 
 <PageTitle>Finance</PageTitle>
 
-<MudText H3="true" Class="mb-4">Finance</MudText>
+<MudText Typo="Typo.h3" Class="mb-4">Finance</MudText>
 
 @if (_noBuildings)
 {
@@ -28,7 +28,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Total Income (12 months)</MudText>
-                    <MudText H5="true">@_summary.TotalIncome.ToString("N2") RSD</MudText>
+                    <MudText Typo="Typo.h5">@_summary.TotalIncome.ToString("N2") RSD</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -36,7 +36,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Total Expenses</MudText>
-                    <MudText H5="true">@_summary.TotalExpenses.ToString("N2") RSD</MudText>
+                    <MudText Typo="Typo.h5">@_summary.TotalExpenses.ToString("N2") RSD</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -44,7 +44,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Balance</MudText>
-                    <MudText H5="true" Color="@(_summary.Balance >= 0 ? Color.Success : Color.Error)">@_summary.Balance.ToString("N2") RSD</MudText>
+                    <MudText Typo="Typo.h5" Color="@(_summary.Balance >= 0 ? Color.Success : Color.Error)">@_summary.Balance.ToString("N2") RSD</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -52,7 +52,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Outstanding (this month)</MudText>
-                    <MudText H5="true" Color="@(_summary.OutstandingReceivables > 0 ? Color.Warning : Color.Success)">@_summary.OutstandingReceivables.ToString("N2") RSD</MudText>
+                    <MudText Typo="Typo.h5" Color="@(_summary.OutstandingReceivables > 0 ? Color.Warning : Color.Success)">@_summary.OutstandingReceivables.ToString("N2") RSD</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -60,13 +60,13 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Collection Rate (12 months)</MudText>
-                    <MudText H5="true">@_summary.CollectionRate.ToString("N1")%</MudText>
+                    <MudText Typo="Typo.h5">@_summary.CollectionRate.ToString("N1")%</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
     </MudGrid>
 
-    <MudText H5="true" Class="mt-8 mb-2">Monthly Fee</MudText>
+    <MudText Typo="Typo.h5" Class="mt-8 mb-2">Monthly Fee</MudText>
     <MudPaper Class="pa-4" Elevation="2">
         <MudGrid AlignItems="End">
             <MudItem xs="12" sm="6" md="4">
