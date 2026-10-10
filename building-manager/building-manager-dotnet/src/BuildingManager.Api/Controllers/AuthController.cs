@@ -1,7 +1,10 @@
 using System.ComponentModel.DataAnnotations;
+using BuildingManager.Core.Security;
 using BuildingManager.Orleans.Interfaces;
+using BuildingManager.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -15,14 +18,22 @@ namespace BuildingManager.Api.Controllers;
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
+    private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(7);
+
     private readonly IGrainFactory _grainFactory;
     private readonly JwtOptions _jwt;
+    private readonly IEmailSender _emailSender;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IGrainFactory grainFactory, IOptions<JwtOptions> jwt, ILogger<AuthController> logger)
+    public AuthController(
+        IGrainFactory grainFactory,
+        IOptions<JwtOptions> jwt,
+        IEmailSender emailSender,
+        ILogger<AuthController> logger)
     {
         _grainFactory = grainFactory;
         _jwt = jwt.Value;
+        _emailSender = emailSender;
         _logger = logger;
     }
 
@@ -36,6 +47,7 @@ public class AuthController : ControllerBase
     };
 
     [HttpPost("register")]
+    [EnableRateLimiting("auth")]
     public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
     {
         if (!SelfRegistrationRoles.Contains(request.Role))
@@ -55,11 +67,12 @@ public class AuthController : ControllerBase
             Password = request.Password
         });
 
-        var response = await IssueTokenAsync(userGrain, normalizedEmail);
-        return StatusCode(StatusCodes.Status201Created, response);
+        var profile = await userGrain.GetProfileAsync();
+        return StatusCode(StatusCodes.Status201Created, await StartNewSessionAsync(profile));
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("auth")]
     public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
     {
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
@@ -75,7 +88,131 @@ public class AuthController : ControllerBase
             });
         }
 
-        return Ok(await IssueTokenAsync(userGrain, normalizedEmail));
+        var profile = await userGrain.GetProfileAsync();
+        return Ok(await StartNewSessionAsync(profile));
+    }
+
+    /// <summary>Exchanges a valid refresh token for a new access token + rotated refresh token.</summary>
+    [HttpPost("refresh")]
+    [EnableRateLimiting("auth")]
+    public async Task<ActionResult<AuthResponse>> Refresh([FromBody] RefreshRequest request)
+    {
+        var parts = (request.RefreshToken ?? string.Empty).Split(':', 2);
+        if (parts.Length != 2 || string.IsNullOrEmpty(parts[0]) || string.IsNullOrEmpty(parts[1]))
+        {
+            return Unauthorized(new ProblemDetails { Title = "Invalid refresh token" });
+        }
+
+        var (sessionId, secret) = (parts[0], parts[1]);
+        var sessionGrain = _grainFactory.GetGrain<IUserSessionGrain>(sessionId);
+
+        UserSession session;
+        try
+        {
+            session = await sessionGrain.GetSessionAsync();
+        }
+        catch (KeyNotFoundException)
+        {
+            return Unauthorized(new ProblemDetails { Title = "Invalid refresh token" });
+        }
+
+        var newSecret = TokenHasher.Generate();
+        var rotated = await sessionGrain.TryRotateRefreshTokenAsync(
+            TokenHasher.Hash(secret),
+            TokenHasher.Hash(newSecret),
+            DateTime.UtcNow.Add(RefreshTokenLifetime));
+
+        if (!rotated)
+        {
+            return Unauthorized(new ProblemDetails { Title = "Invalid or already-used refresh token" });
+        }
+
+        var profile = await _grainFactory.GetGrain<IUserGrain>(session.Email).GetProfileAsync();
+        var expiresAt = DateTime.UtcNow.AddMinutes(_jwt.ExpirationMinutes);
+
+        return Ok(new AuthResponse
+        {
+            Token = CreateAccessToken(profile, sessionId, expiresAt),
+            ExpiresAtUtc = expiresAt,
+            RefreshToken = $"{sessionId}:{newSecret}",
+            UserId = profile.UserId,
+            Email = profile.Email,
+            DisplayName = profile.DisplayName,
+            Role = profile.Role
+        });
+    }
+
+    /// <summary>Requests a password reset. Always 200 — never reveals whether the account exists.</summary>
+    [HttpPost("forgot-password")]
+    [EnableRateLimiting("auth")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var userGrain = _grainFactory.GetGrain<IUserGrain>(normalizedEmail);
+        var resetToken = await userGrain.CreatePasswordResetTokenAsync();
+
+        if (resetToken is not null)
+        {
+            await _emailSender.SendPasswordResetEmailAsync(normalizedEmail, resetToken);
+        }
+
+        return Ok();
+    }
+
+    [HttpPost("reset-password")]
+    [EnableRateLimiting("auth")]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var userGrain = _grainFactory.GetGrain<IUserGrain>(normalizedEmail);
+
+        bool reset;
+        try
+        {
+            reset = await userGrain.ResetPasswordAsync(request.ResetToken, request.NewPassword);
+        }
+        catch (ArgumentException)
+        {
+            return BadRequest(new ProblemDetails { Title = "Invalid password", Detail = "Password must be at least 8 characters." });
+        }
+
+        if (!reset)
+        {
+            return BadRequest(new ProblemDetails { Title = "Invalid reset token", Detail = "The token is invalid or has expired." });
+        }
+
+        return Ok();
+    }
+
+    /// <summary>
+    /// Changes the password. Terminates ALL of the user's sessions (including
+    /// the current one) — the client should redirect to the login page.
+    /// </summary>
+    [Authorize]
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    {
+        var email = User.FindFirst("email")?.Value;
+        if (string.IsNullOrEmpty(email))
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            await _grainFactory.GetGrain<IUserGrain>(email)
+                .ChangePasswordAsync(request.CurrentPassword, request.NewPassword);
+        }
+        catch (InvalidOperationException)
+        {
+            return BadRequest(new ProblemDetails { Title = "Wrong password", Detail = "The current password is incorrect." });
+        }
+        catch (ArgumentException)
+        {
+            return BadRequest(new ProblemDetails { Title = "Invalid password", Detail = "New password must be at least 8 characters." });
+        }
+
+        return Ok();
     }
 
     [Authorize]
@@ -97,22 +234,27 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Logout()
     {
         var sessionId = User.FindFirst("jti")?.Value;
+        var email = User.FindFirst("email")?.Value;
         if (!string.IsNullOrEmpty(sessionId))
         {
-            var sessionGrain = _grainFactory.GetGrain<IUserSessionGrain>(sessionId);
-            await sessionGrain.TerminateAsync();
+            await _grainFactory.GetGrain<IUserSessionGrain>(sessionId).TerminateAsync();
+
+            if (!string.IsNullOrEmpty(email))
+            {
+                await _grainFactory.GetGrain<IUserGrain>(email).UnregisterSessionAsync(sessionId);
+            }
         }
 
         return Ok();
     }
 
-    private async Task<AuthResponse> IssueTokenAsync(IUserGrain userGrain, string normalizedEmail)
+    private async Task<AuthResponse> StartNewSessionAsync(UserAccount profile)
     {
-        var profile = await userGrain.GetProfileAsync();
-
         var sessionId = Guid.NewGuid().ToString("N");
         var now = DateTime.UtcNow;
         var expiresAt = now.AddMinutes(_jwt.ExpirationMinutes);
+        var sessionExpiry = now.Add(RefreshTokenLifetime);
+        var secret = TokenHasher.Generate();
 
         var sessionGrain = _grainFactory.GetGrain<IUserSessionGrain>(sessionId);
         await sessionGrain.StartSessionAsync(new UserSession
@@ -123,10 +265,34 @@ public class AuthController : ControllerBase
             AccessibleBuildingIds = new List<string>(),
             CreatedAt = now,
             LastActivityAt = now,
-            ExpiresAt = expiresAt
+            // The session lives as long as its refresh token: the access token
+            // expiry (60 min) is enforced by the JWT itself.
+            ExpiresAt = sessionExpiry
         });
+        await sessionGrain.SetRefreshTokenAsync(TokenHasher.Hash(secret));
 
-        var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        // Track the session on the account so a password reset/change can
+        // revoke it (and every other device's session).
+        await _grainFactory.GetGrain<IUserGrain>(profile.Email).RegisterSessionAsync(sessionId);
+
+        _logger.LogInformation("Issued token for {Email} (role {Role})", profile.Email, profile.Role);
+
+        return new AuthResponse
+        {
+            Token = CreateAccessToken(profile, sessionId, expiresAt),
+            ExpiresAtUtc = expiresAt,
+            RefreshToken = $"{sessionId}:{secret}",
+            UserId = profile.UserId,
+            Email = profile.Email,
+            DisplayName = profile.DisplayName,
+            Role = profile.Role
+        };
+    }
+
+    private string CreateAccessToken(UserAccount profile, string sessionId, DateTime expiresAt)
+    {
+        var now = DateTime.UtcNow;
+        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = _jwt.Issuer,
             Audience = _jwt.Audience,
@@ -144,18 +310,6 @@ public class AuthController : ControllerBase
                 ["jti"] = sessionId
             }
         });
-
-        _logger.LogInformation("Issued token for {Email} (role {Role})", normalizedEmail, profile.Role);
-
-        return new AuthResponse
-        {
-            Token = token,
-            ExpiresAtUtc = expiresAt,
-            UserId = profile.UserId,
-            Email = profile.Email,
-            DisplayName = profile.DisplayName,
-            Role = profile.Role
-        };
     }
 }
 
@@ -188,6 +342,39 @@ public record LoginRequest
 
     [Required, MaxLength(200)]
     public string Password { get; init; } = "";
+}
+
+public record RefreshRequest
+{
+    [Required]
+    public string? RefreshToken { get; init; }
+}
+
+public record ForgotPasswordRequest
+{
+    [Required, EmailAddress, MaxLength(200)]
+    public string Email { get; init; } = "";
+}
+
+public record ResetPasswordRequest
+{
+    [Required, EmailAddress, MaxLength(200)]
+    public string Email { get; init; } = "";
+
+    [Required]
+    public string ResetToken { get; init; } = "";
+
+    [Required, MinLength(8), MaxLength(200)]
+    public string NewPassword { get; init; } = "";
+}
+
+public record ChangePasswordRequest
+{
+    [Required, MaxLength(200)]
+    public string CurrentPassword { get; init; } = "";
+
+    [Required, MinLength(8), MaxLength(200)]
+    public string NewPassword { get; init; } = "";
 }
 
 public record CurrentUser

@@ -1,8 +1,13 @@
 using System.Text;
+using System.Threading.RateLimiting;
+using BuildingManager.Api.Authorization;
 using BuildingManager.Api.Controllers;
 using BuildingManager.Api.Middleware;
+using BuildingManager.Api.Services;
 using BuildingManager.Orleans.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Orleans;
 using Orleans.Configuration;
@@ -117,7 +122,19 @@ builder.Services
             }
         };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // Mutations that change building data require a management role.
+    options.AddPolicy(AuthPolicies.ManageOnly, policy => policy.RequireRole(
+        "Manager", "SubstituteManager", "Admin", "CompanyAdmin"));
+
+    // Building-scoped endpoints additionally require access to that building
+    // (admins bypass), checked by BuildingAccessHandler.
+    options.AddPolicy(AuthPolicies.BuildingAccess, policy => policy
+        .RequireAuthenticatedUser()
+        .AddRequirements(new BuildingAccessRequirement()));
+});
+builder.Services.AddScoped<IAuthorizationHandler, BuildingAccessHandler>();
 
 // The Blazor WebAssembly client is hosted on a different origin than this API.
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
@@ -141,6 +158,33 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
+
+builder.Services.AddSingleton<IEmailSender, DevLoggingEmailSender>();
+builder.Services.AddHostedService<AdminSeeder>();
+
+// Brute-force protection for auth endpoints: fixed window per client IP.
+var authRateLimit = builder.Configuration.GetValue("RateLimit:AuthRequestsPerMinute", 10);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        await context.HttpContext.Response.WriteAsJsonAsync(new Microsoft.AspNetCore.Mvc.ProblemDetails
+        {
+            Title = "Too many requests",
+            Detail = "Too many authentication attempts; please wait a minute and try again."
+        }, cancellationToken);
+    };
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = authRateLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+});
 
 var clusterId = builder.Configuration["Orleans:ClusterId"] ?? "building-manager-dev";
 var serviceId = builder.Configuration["Orleans:ServiceId"] ?? "building-manager-service";
@@ -168,6 +212,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseRateLimiter();
 app.UseCors("BlazorClient");
 app.UseAuthentication();
 app.UseAuthorization();

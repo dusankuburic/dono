@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using BuildingManager.Api.Authorization;
 using BuildingManager.Core.Enums;
 using BuildingManager.Orleans.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -20,14 +21,27 @@ public class BuildingsController : ControllerBase
     }
 
     /// <summary>
-    /// Lists all initialized buildings by asking the registry grain for their
-    /// ids and then fetching each building's summary.
+    /// Lists buildings the caller can access (all of them for admins).
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<IEnumerable<BuildingSummary>>> GetAllBuildings()
     {
         var registry = _grainFactory.GetGrain<IBuildingRegistryGrain>("global");
         var entries = await registry.GetAllAsync();
+
+        var role = User.FindFirst("role")?.Value;
+        if (role is not ("Admin" or "CompanyAdmin"))
+        {
+            var email = User.FindFirst("email")?.Value;
+            if (string.IsNullOrEmpty(email))
+            {
+                return Ok(Array.Empty<BuildingSummary>());
+            }
+
+            var userGrain = _grainFactory.GetGrain<IUserGrain>(email);
+            var accessible = (await userGrain.GetAccessibleBuildingIdsAsync()).ToHashSet();
+            entries = entries.Where(e => accessible.Contains(e.Id)).ToList();
+        }
 
         var summaries = new List<BuildingSummary>();
         foreach (var entry in entries)
@@ -48,6 +62,7 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpGet("{buildingId}")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<BuildingSummary>> GetBuilding(string buildingId)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -56,6 +71,7 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/initialize")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
     public async Task<ActionResult> InitializeBuilding(string buildingId, [FromBody] BuildingInfoRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -73,10 +89,19 @@ public class BuildingsController : ControllerBase
             TotalAreaM2 = request.TotalAreaM2 ?? 0
         };
         await grain.InitializeAsync(info);
+
+        // The manager who creates the building keeps access to it.
+        var email = User.FindFirst("email")?.Value;
+        if (!string.IsNullOrEmpty(email))
+        {
+            await _grainFactory.GetGrain<IUserGrain>(email).GrantBuildingAccessAsync(buildingId);
+        }
+
         return StatusCode(StatusCodes.Status201Created);
     }
 
     [HttpGet("{buildingId}/units")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<UnitInfo>>> GetUnits(string buildingId)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -85,6 +110,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/units")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult> AddUnit(string buildingId, [FromBody] UnitInfoRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -104,6 +131,7 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpGet("{buildingId}/residents")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<ResidentInfo>>> GetResidents(string buildingId)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -112,6 +140,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/residents")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult> AddResident(string buildingId, [FromBody] ResidentInfoRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -131,6 +161,7 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpGet("{buildingId}/keys")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<KeyInfo>>> GetKeys(string buildingId)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -139,6 +170,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/keys")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult> AddKey(string buildingId, [FromBody] KeyInfoRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -155,6 +188,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/keys/{keyId}/checkout")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<KeyInfo>> CheckoutKey(string buildingId, Guid keyId, [FromBody] KeyCheckoutRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -163,6 +198,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/keys/{keyId}/checkin")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<KeyInfo>> CheckinKey(string buildingId, Guid keyId, [FromBody] KeyCheckinRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -171,6 +208,7 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpGet("{buildingId}/workorders")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<WorkOrderInfo>>> GetWorkOrders(string buildingId, [FromQuery] WorkOrderStatus? status)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -178,7 +216,9 @@ public class BuildingsController : ControllerBase
         return Ok(workOrders);
     }
 
+    // Residents may report problems; only management updates status (below).
     [HttpPost("{buildingId}/workorders")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<WorkOrderInfo>> CreateWorkOrder(string buildingId, [FromBody] CreateWorkOrderRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -187,6 +227,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPatch("{buildingId}/workorders/{workOrderId}/status")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<WorkOrderInfo>> UpdateWorkOrderStatus(
         string buildingId,
         Guid workOrderId,
@@ -198,6 +240,7 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpGet("{buildingId}/announcements")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<AnnouncementInfo>>> GetAnnouncements(string buildingId)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -206,6 +249,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/announcements")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult> CreateAnnouncement(string buildingId, [FromBody] CreateAnnouncementRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -223,6 +268,7 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpGet("{buildingId}/finance/summary")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<FinancialSummary>> GetFinancialSummary(string buildingId)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -231,6 +277,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/finance/payments")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult> RecordPayment(string buildingId, [FromBody] PaymentInfoRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -249,6 +297,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/finance/expenses")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult> RecordExpense(string buildingId, [FromBody] ExpenseInfoRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -266,6 +316,8 @@ public class BuildingsController : ControllerBase
     }
 
     [HttpPost("{buildingId}/finance/fee-structure")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult> SetFeeStructure(string buildingId, [FromBody] FeeStructureRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -278,6 +330,60 @@ public class BuildingsController : ControllerBase
         };
         await grain.SetFeeStructureAsync(fee);
         return StatusCode(StatusCodes.Status201Created);
+    }
+
+    /// <summary>Lists the accounts with access to this building (admins have implicit access and are not listed).</summary>
+    [HttpGet("{buildingId}/access")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<IEnumerable<BuildingMember>>> GetAccess(string buildingId)
+    {
+        var emails = await _grainFactory.GetGrain<IBuildingAccessGrain>(buildingId).GetMemberEmailsAsync();
+
+        var members = new List<BuildingMember>();
+        foreach (var email in emails)
+        {
+            try
+            {
+                var profile = await _grainFactory.GetGrain<IUserGrain>(email).GetProfileAsync();
+                members.Add(new BuildingMember
+                {
+                    Email = profile.Email,
+                    DisplayName = profile.DisplayName,
+                    Role = profile.Role
+                });
+            }
+            catch (KeyNotFoundException)
+            {
+                // Index entry for an account that no longer exists: skip it.
+            }
+        }
+
+        return Ok(members);
+    }
+
+    /// <summary>Gives another registered user access to this building.</summary>
+    [HttpPut("{buildingId}/access/{email}")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> GrantAccess(string buildingId, string email)
+    {
+        var normalizedEmail = email.Trim().ToLowerInvariant();
+        var userGrain = _grainFactory.GetGrain<IUserGrain>(normalizedEmail);
+        await userGrain.GetProfileAsync(); // 404 for unknown accounts
+        await userGrain.GrantBuildingAccessAsync(buildingId);
+        return Ok();
+    }
+
+    /// <summary>Removes a user's access to this building.</summary>
+    [HttpDelete("{buildingId}/access/{email}")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> RevokeAccess(string buildingId, string email)
+    {
+        var normalizedEmail = email.Trim().ToLowerInvariant();
+        await _grainFactory.GetGrain<IUserGrain>(normalizedEmail).RevokeBuildingAccessAsync(buildingId);
+        return Ok();
     }
 }
 

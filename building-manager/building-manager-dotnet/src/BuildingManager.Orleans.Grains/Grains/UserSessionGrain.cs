@@ -97,6 +97,46 @@ public class UserSessionGrain : Grain, IUserSessionGrain
         _state.State.IsTerminated = true;
         await _state.WriteStateAsync();
     }
+
+    public async Task SetRefreshTokenAsync(string refreshTokenHash)
+    {
+        if (_state.State.Session is null)
+            throw new KeyNotFoundException("Session has not been started.");
+
+        // Must be persisted: the grain is deactivated when idle, and a hash
+        // kept only in memory would make the refresh token useless afterwards.
+        _state.State.RefreshTokenHash = refreshTokenHash;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task<bool> TryRotateRefreshTokenAsync(
+        string oldRefreshTokenHash, string newRefreshTokenHash, DateTime newSessionExpiryUtc)
+    {
+        var session = _state.State.Session;
+        if (session is null || _state.State.IsTerminated || session.ExpiresAt <= DateTime.UtcNow)
+        {
+            return false;
+        }
+
+        // Constant-time compare: both sides are fixed-length SHA-256 hex strings.
+        var stored = _state.State.RefreshTokenHash;
+        if (string.IsNullOrEmpty(stored)
+            || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(stored),
+                System.Text.Encoding.UTF8.GetBytes(oldRefreshTokenHash)))
+        {
+            return false;
+        }
+
+        _state.State.RefreshTokenHash = newRefreshTokenHash;
+        if (newSessionExpiryUtc > session.ExpiresAt)
+        {
+            _state.State.Session = session with { ExpiresAt = newSessionExpiryUtc };
+        }
+
+        await _state.WriteStateAsync();
+        return true;
+    }
 }
 
 [GenerateSerializer]
@@ -104,4 +144,5 @@ public class UserSessionState
 {
     [Id(0)] public UserSession? Session { get; set; }
     [Id(1)] public bool IsTerminated { get; set; }
+    [Id(2)] public string? RefreshTokenHash { get; set; }
 }

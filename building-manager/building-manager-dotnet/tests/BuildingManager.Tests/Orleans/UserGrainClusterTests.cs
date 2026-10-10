@@ -111,6 +111,80 @@ public class UserGrainClusterTests : IClassFixture<ClusterFixture>
         (await grain.ValidatePasswordAsync("NewS3curePass!")).Should().BeTrue();
         (await grain.ValidatePasswordAsync("S3curePass!")).Should().BeFalse();
     }
+
+    [Fact]
+    public async Task Building_Access_Grant_And_Revoke_Roundtrip()
+    {
+        var grain = GetUserGrain();
+        await grain.RegisterAsync(RegisterRequest());
+
+        (await grain.HasBuildingAccessAsync("bldg-1")).Should().BeFalse();
+
+        await grain.GrantBuildingAccessAsync("bldg-1");
+        await grain.GrantBuildingAccessAsync("bldg-2");
+        await grain.GrantBuildingAccessAsync("bldg-1"); // duplicate is a no-op
+
+        (await grain.HasBuildingAccessAsync("bldg-1")).Should().BeTrue();
+        (await grain.GetAccessibleBuildingIdsAsync()).Should().BeEquivalentTo(new[] { "bldg-1", "bldg-2" });
+
+        await grain.RevokeBuildingAccessAsync("bldg-1");
+
+        (await grain.HasBuildingAccessAsync("bldg-1")).Should().BeFalse();
+        (await grain.GetAccessibleBuildingIdsAsync()).Should().BeEquivalentTo(new[] { "bldg-2" });
+    }
+
+    [Fact]
+    public async Task Grant_Access_To_Unregistered_Account_Throws()
+    {
+        var grain = GetUserGrain();
+
+        var act = () => grain.GrantBuildingAccessAsync("bldg-1");
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+    }
+
+    [Fact]
+    public async Task Unregistered_Account_Has_No_Access()
+    {
+        var grain = GetUserGrain();
+
+        (await grain.HasBuildingAccessAsync("bldg-1")).Should().BeFalse();
+        (await grain.GetAccessibleBuildingIdsAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Grant_And_Revoke_Keep_The_Building_Member_Index_In_Sync()
+    {
+        // Unique building id: the cluster (and so the index) is shared across tests.
+        var buildingId = $"bldg-{Guid.NewGuid():N}";
+        var alice = GetUserGrain();
+        var bob = GetUserGrain();
+        await alice.RegisterAsync(RegisterRequest());
+        await bob.RegisterAsync(RegisterRequest());
+        var index = GrainFactory.GetGrain<IBuildingAccessGrain>(buildingId);
+
+        await alice.GrantBuildingAccessAsync(buildingId);
+        await bob.GrantBuildingAccessAsync(buildingId);
+        await alice.GrantBuildingAccessAsync(buildingId); // duplicate is a no-op
+
+        (await index.GetMemberEmailsAsync()).Should().BeEquivalentTo(
+            alice.GetPrimaryKeyString(), bob.GetPrimaryKeyString());
+
+        await alice.RevokeBuildingAccessAsync(buildingId);
+
+        (await index.GetMemberEmailsAsync()).Should().BeEquivalentTo(bob.GetPrimaryKeyString());
+    }
+
+    [Fact]
+    public async Task Failed_Grant_To_Unregistered_Account_Does_Not_Touch_The_Index()
+    {
+        var buildingId = $"bldg-{Guid.NewGuid():N}";
+
+        var act = () => GetUserGrain().GrantBuildingAccessAsync(buildingId);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+        (await GrainFactory.GetGrain<IBuildingAccessGrain>(buildingId).GetMemberEmailsAsync()).Should().BeEmpty();
+    }
 }
 
 public class UserSessionGrainClusterTests : IClassFixture<ClusterFixture>

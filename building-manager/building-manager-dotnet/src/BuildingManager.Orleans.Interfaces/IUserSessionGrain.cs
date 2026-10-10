@@ -20,6 +20,16 @@ public interface IUserSessionGrain : IGrainWithStringKey
     Task RemoveBuildingAccessAsync(string buildingId);
     Task<IEnumerable<string>> GetAccessibleBuildingsAsync();
     Task TerminateAsync();
+
+    /// <summary>Stores the initial refresh token hash for the session.</summary>
+    Task SetRefreshTokenAsync(string refreshTokenHash);
+
+    /// <summary>
+    /// One-time-use refresh: validates the old token hash, replaces it with the
+    /// new one and extends the session expiry. Returns false when the hash does
+    /// not match (already rotated), or the session is terminated/expired.
+    /// </summary>
+    Task<bool> TryRotateRefreshTokenAsync(string oldRefreshTokenHash, string newRefreshTokenHash, DateTime newSessionExpiryUtc);
 }
 
 [GenerateSerializer]

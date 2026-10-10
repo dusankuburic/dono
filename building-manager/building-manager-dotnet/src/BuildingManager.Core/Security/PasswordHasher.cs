@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 
 namespace BuildingManager.Core.Security;
 
@@ -50,4 +51,18 @@ public static class PasswordHasher
         var actualKey = Rfc2898DeriveBytes.Pbkdf2(password, salt, iterations, Algorithm, expectedKey.Length);
         return CryptographicOperations.FixedTimeEquals(actualKey, expectedKey);
     }
+}
+
+/// <summary>
+/// SHA-256 hashing for opaque tokens (refresh tokens, password reset tokens).
+/// These tokens are high-entropy random values, so a fast hash is appropriate
+/// (unlike passwords, which use PasswordHasher's PBKDF2).
+/// </summary>
+public static class TokenHasher
+{
+    public static string Hash(string token) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+    public static string Generate() =>
+        Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 }
