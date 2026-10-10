@@ -38,9 +38,15 @@
             <MudItem xs="12" md="3">
                 <MudSwitch @bind-Value="_building.HasParking" Label="Has Parking" T="bool" />
             </MudItem>
+            @if (_error is not null)
+            {
+                <MudItem xs="12">
+                    <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+                </MudItem>
+            }
             <MudItem xs="12">
                 <MudStack Row="true" Spacing="2">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Type="submit">Save</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" ButtonType="ButtonType.Submit" Disabled="@_busy">Save</MudButton>
                     <MudButton Variant="Variant.Outlined" OnClick="Cancel">Cancel</MudButton>
                 </MudStack>
             </MudItem>
@@ -50,8 +56,32 @@
 
 @code {
     private BuildingViewModel _building = new();
+    private string? _error;
+    private bool _busy;
 
     private async Task HandleSubmit()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            await CreateBuilding();
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            _error = "Only managers and administrators can create buildings.";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not create the building: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CreateBuilding()
     {
         var buildingId = Guid.NewGuid().ToString();
         var info = new BuildingInfoRequest

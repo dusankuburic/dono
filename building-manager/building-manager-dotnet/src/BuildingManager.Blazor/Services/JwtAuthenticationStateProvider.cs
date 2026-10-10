@@ -29,13 +29,16 @@ public class JwtAuthenticationStateProvider : AuthenticationStateProvider
             }
 
             var claims = JwtParser.ParseClaims(token);
-            if (JwtParser.IsExpired(claims))
+            if (JwtParser.IsExpired(claims)
+                && !await _localStorage.ContainKeyAsync(AuthService.RefreshTokenStorageKey))
             {
+                // With a refresh token the user stays signed in: the first API
+                // call gets a 401 and AuthorizationMessageHandler refreshes.
                 await _localStorage.RemoveItemAsync(AuthService.TokenStorageKey);
                 return Anonymous();
             }
 
-            var identity = new ClaimsIdentity(claims, authenticationType: "jwt");
+            var identity = new ClaimsIdentity(claims, authenticationType: "jwt", nameType: "name", roleType: "role");
             return new AuthenticationState(new ClaimsPrincipal(identity));
         }
         catch
@@ -47,7 +50,7 @@ public class JwtAuthenticationStateProvider : AuthenticationStateProvider
     public Task NotifyLoggedInAsync(string token)
     {
         var claims = JwtParser.ParseClaims(token);
-        var identity = new ClaimsIdentity(claims, authenticationType: "jwt");
+        var identity = new ClaimsIdentity(claims, authenticationType: "jwt", nameType: "name", roleType: "role");
         var state = new AuthenticationState(new ClaimsPrincipal(identity));
         NotifyAuthenticationStateChanged(Task.FromResult(state));
         return Task.CompletedTask;

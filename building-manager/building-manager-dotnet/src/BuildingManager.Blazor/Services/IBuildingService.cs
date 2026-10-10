@@ -17,6 +17,14 @@ public interface IBuildingService
     Task<IEnumerable<WorkOrderInfo>> GetWorkOrdersAsync(string buildingId, WorkOrderStatus? status = null);
     Task<WorkOrderInfo> CreateWorkOrderAsync(string buildingId, CreateWorkOrderRequest request);
     Task<FinancialSummary> GetFinancialSummaryAsync(string buildingId);
+
+    /// <summary>Accounts with access to the building (management roles only).</summary>
+    Task<List<BuildingMember>> GetMembersAsync(string buildingId);
+
+    /// <summary>Grants access to a registered account. Throws InvalidOperationException if there is no such account.</summary>
+    Task GrantAccessAsync(string buildingId, string email);
+
+    Task RevokeAccessAsync(string buildingId, string email);
 }
 
 public record BuildingInfoRequest

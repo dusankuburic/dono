@@ -1,6 +1,8 @@
+using System.Net.Http;
 using System.Net.Http.Json;
 using BuildingManager.Core.Enums;
 using BuildingManager.Orleans.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BuildingManager.Blazor.Services;
 
@@ -8,7 +10,7 @@ public class BuildingService : IBuildingService
 {
     private readonly HttpClient _httpClient;
 
-    public BuildingService(HttpClient httpClient)
+    public BuildingService([FromKeyedServices("ApiHttpClient")] HttpClient httpClient)
     {
         _httpClient = httpClient;
     }
@@ -99,6 +101,31 @@ public class BuildingService : IBuildingService
     {
         var response = await _httpClient.PostAsJsonAsync($"/api/buildings/{buildingId}/finance/fee-structure",
             new { Name = name, AmountPerM2 = amountPerM2, FixedAmount = fixedAmount });
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<List<BuildingMember>> GetMembersAsync(string buildingId)
+    {
+        var response = await _httpClient.GetAsync($"/api/buildings/{buildingId}/access");
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<List<BuildingMember>>() ?? new List<BuildingMember>();
+    }
+
+    public async Task GrantAccessAsync(string buildingId, string email)
+    {
+        var response = await _httpClient.PutAsync(
+            $"/api/buildings/{buildingId}/access/{Uri.EscapeDataString(email)}", content: null);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException($"There is no account registered with {email}.");
+        }
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task RevokeAccessAsync(string buildingId, string email)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"/api/buildings/{buildingId}/access/{Uri.EscapeDataString(email)}");
         response.EnsureSuccessStatusCode();
     }
 }

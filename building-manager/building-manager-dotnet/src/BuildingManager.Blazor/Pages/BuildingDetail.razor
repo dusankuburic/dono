@@ -1,6 +1,8 @@
 @page "/buildings/{BuildingId}"
 @inject IBuildingService BuildingService
 @inject IBuildingSelectionService BuildingSelection
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
 
 <PageTitle>Building details</PageTitle>
 
@@ -77,15 +79,76 @@ else
             <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No units registered.</MudTd>
         </NoRecordsContent>
     </MudTable>
+
+    @if (_canManage)
+    {
+        <MudText H5="true" Class="mt-6 mb-2">Access</MudText>
+        <MudText Typo="Typo.body2" Class="mb-2">
+            People who can see this building. Residents need access to report work orders.
+        </MudText>
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudTextField @bind-Value="_grantEmail" Label="Email of a registered user" Variant="Variant.Outlined"
+                          Margin="Margin.Dense" Style="max-width: 360px;"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Email" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd"
+                       OnClick="GrantAccess" Disabled="@(_accessBusy || string.IsNullOrWhiteSpace(_grantEmail))">
+                Grant access
+            </MudButton>
+        </MudStack>
+
+        @if (_accessError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@_accessError</MudAlert>
+        }
+
+        <MudTable Items="@_members" Hover="true" Breakpoint="Breakpoint.Sm" Dense="true">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Email</MudTh>
+                <MudTh>Role</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                <MudTd DataLabel="Email">@context.Email</MudTd>
+                <MudTd DataLabel="Role">@context.Role</MudTd>
+                <MudTd Style="text-align: right;">
+                    @if (!string.Equals(context.Email, _currentEmail, StringComparison.OrdinalIgnoreCase))
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.PersonRemove" Color="Color.Error" Size="Size.Small"
+                                       Title="Revoke access" Disabled="@_accessBusy"
+                                       OnClick="@(() => RevokeAccess(context))" />
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudTd Colspan="4" Class="pa-4" Align="Align.Center">Nobody has been given access yet.</MudTd>
+            </NoRecordsContent>
+        </MudTable>
+    }
 }
 
 @code {
+    // Mirrors the API's ManageOnly policy; the API enforces it regardless.
+    private static readonly string[] ManageRoles = { "Manager", "SubstituteManager", "Admin", "CompanyAdmin" };
+
     private BuildingSummary? _summary;
     private List<UnitInfo> _units = new();
     private string? _loadError;
 
+    private bool _canManage;
+    private string? _currentEmail;
+    private List<BuildingMember> _members = new();
+    private string _grantEmail = string.Empty;
+    private string? _accessError;
+    private bool _accessBusy;
+
     [Parameter]
     public string BuildingId { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -104,6 +167,82 @@ else
         catch (Exception ex)
         {
             _loadError = $"Could not load building: {ex.Message}";
+            return;
+        }
+
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            _currentEmail = user.FindFirst("email")?.Value;
+            _canManage = ManageRoles.Any(user.IsInRole);
+        }
+
+        if (_canManage)
+        {
+            await LoadMembers();
+        }
+    }
+
+    private async Task LoadMembers()
+    {
+        try
+        {
+            _members = await BuildingService.GetMembersAsync(BuildingId);
+        }
+        catch (Exception ex)
+        {
+            _accessError = $"Could not load access list: {ex.Message}";
+        }
+    }
+
+    private async Task GrantAccess()
+    {
+        _accessBusy = true;
+        _accessError = null;
+        try
+        {
+            var email = _grantEmail.Trim();
+            await BuildingService.GrantAccessAsync(BuildingId, email);
+            _grantEmail = string.Empty;
+            Snackbar.Add($"{email} can now access this building", Severity.Success);
+            await LoadMembers();
+        }
+        catch (Exception ex)
+        {
+            _accessError = ex.Message;
+        }
+        finally
+        {
+            _accessBusy = false;
+        }
+    }
+
+    private async Task RevokeAccess(BuildingMember member)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Revoke access",
+            $"Remove {member.DisplayName} ({member.Email}) from {_summary?.Name}?",
+            yesText: "Revoke", cancelText: "Cancel");
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        _accessBusy = true;
+        _accessError = null;
+        try
+        {
+            await BuildingService.RevokeAccessAsync(BuildingId, member.Email);
+            Snackbar.Add($"Access revoked for {member.Email}", Severity.Info);
+            await LoadMembers();
+        }
+        catch (Exception ex)
+        {
+            _accessError = $"Could not revoke access: {ex.Message}";
+        }
+        finally
+        {
+            _accessBusy = false;
         }
     }
 }
