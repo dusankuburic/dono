@@ -1,6 +1,7 @@
 using BuildingManager.Core.Enums;
 using BuildingManager.Orleans.Grains.State;
 using BuildingManager.Orleans.Interfaces;
+using Microsoft.Extensions.Logging;
 using Orleans;
 using Orleans.Runtime;
 
@@ -9,12 +10,92 @@ namespace BuildingManager.Orleans.Grains;
 public class BuildingGrain : Grain, IBuildingGrain
 {
     private readonly IPersistentState<BuildingAggregateState> _state;
+    private readonly ILogger<BuildingGrain> _logger;
 
     public BuildingGrain(
         [PersistentState("building", "buildingStorage")]
-        IPersistentState<BuildingAggregateState> state)
+        IPersistentState<BuildingAggregateState> state,
+        ILogger<BuildingGrain> logger)
     {
         _state = state;
+        _logger = logger;
+    }
+
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        await MigrateLegacyFinanceAsync();
+        await base.OnActivateAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Payments and expenses used to be stored in this grain's state. Moves
+    /// any that remain into the per-month finance grains. Finance grains
+    /// dedupe by id, so an interrupted migration is safely redone on the next
+    /// activation. Never fails activation: on error the legacy data is kept
+    /// and retried later.
+    /// </summary>
+    private async Task MigrateLegacyFinanceAsync()
+    {
+        if (_state.State.Payments.Count == 0 && _state.State.Expenses.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var payment in _state.State.Payments.Values)
+            {
+                if (payment.Amount <= 0)
+                {
+                    _logger.LogWarning("Skipping legacy payment {PaymentId} with non-positive amount {Amount}",
+                        payment.Id, payment.Amount);
+                    continue;
+                }
+
+                await RecordPaymentAsync(new PaymentInfo
+                {
+                    Id = payment.Id,
+                    UnitNumber = payment.UnitNumber,
+                    Amount = payment.Amount,
+                    PaymentDate = payment.PaymentDate,
+                    Month = payment.Month,
+                    Year = payment.Year,
+                    Reference = payment.Reference
+                });
+            }
+
+            foreach (var expense in _state.State.Expenses.Values)
+            {
+                if (expense.Amount <= 0)
+                {
+                    _logger.LogWarning("Skipping legacy expense {ExpenseId} with non-positive amount {Amount}",
+                        expense.Id, expense.Amount);
+                    continue;
+                }
+
+                await RecordExpenseAsync(new ExpenseInfo
+                {
+                    Id = expense.Id,
+                    Amount = expense.Amount,
+                    ExpenseDate = expense.ExpenseDate,
+                    Category = expense.Category,
+                    Description = expense.Description,
+                    Vendor = expense.Vendor
+                });
+            }
+
+            _logger.LogInformation("Migrated {Payments} payments and {Expenses} expenses of building {BuildingId} to finance grains",
+                _state.State.Payments.Count, _state.State.Expenses.Count, this.GetPrimaryKeyString());
+
+            _state.State.Payments.Clear();
+            _state.State.Expenses.Clear();
+            await _state.WriteStateAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Migrating legacy finance data of building {BuildingId} failed; will retry on next activation",
+                this.GetPrimaryKeyString());
+        }
     }
 
     public Task<BuildingSummary> GetSummaryAsync()
@@ -355,13 +436,31 @@ public class BuildingGrain : Grain, IBuildingGrain
 
     public async Task CreateAnnouncementAsync(AnnouncementInfo announcement)
     {
+        // Prune stale entries so the announcement list cannot grow forever:
+        // drop anything that expired over 30 days ago, or that is over a year
+        // old and not pinned.
+        var now = DateTime.UtcNow;
+        var staleKeys = _state.State.Announcements
+            .Where(kv =>
+            {
+                var a = kv.Value;
+                return (a.ExpiresAt is { } expiresAt && expiresAt < now.AddDays(-30))
+                    || (a.CreatedAt < now.AddYears(-1) && !a.IsPinned);
+            })
+            .Select(kv => kv.Key)
+            .ToList();
+        foreach (var key in staleKeys)
+        {
+            _state.State.Announcements.Remove(key);
+        }
+
         var state = new AnnouncementState
         {
             Id = announcement.Id,
             Title = announcement.Title,
             Content = announcement.Content,
             Type = announcement.Type,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = announcement.CreatedAt == default ? DateTime.UtcNow : announcement.CreatedAt,
             ScheduledFor = announcement.ScheduledFor,
             CreatedBy = announcement.CreatedBy,
             IsPinned = false,
@@ -400,32 +499,50 @@ public class BuildingGrain : Grain, IBuildingGrain
 
     public Task<FinancialSummary> GetFinancialSummaryAsync(DateTime? from = null, DateTime? to = null)
     {
-        var startDate = from ?? DateTime.UtcNow.AddMonths(-12);
-        var endDate = to ?? DateTime.UtcNow;
+        return SummarizeFinanceAsync(from, to);
+    }
 
-        var totalIncome = _state.State.Payments.Values
-            .Where(p => p.PaymentDate >= startDate && p.PaymentDate <= endDate)
-            .Sum(p => p.Amount);
+    private async Task<FinancialSummary> SummarizeFinanceAsync(DateTime? from, DateTime? to)
+    {
+        var now = DateTime.UtcNow;
+        var startDate = from ?? now.AddMonths(-12);
+        var endDate = to ?? now;
 
-        var totalExpenses = _state.State.Expenses.Values
-            .Where(e => e.ExpenseDate >= startDate && e.ExpenseDate <= endDate)
-            .Sum(e => e.Amount);
+        // Fetch months sequentially: a parallel fan-out activates many month
+        // grains at once and can burst-open more database connections than
+        // the storage backend tolerates. Payments older than the range can
+        // still exist (e.g. imported history), so no creation-date clamp.
+        decimal totalIncome = 0, totalExpenses = 0;
+        var payingUnits = new HashSet<string>();
+        MonthlyTotals? currentMonthTotals = null;
+        var currentMonth = new DateTime(now.Year, now.Month, 1);
+
+        foreach (var month in EnumerateMonths(startDate, endDate))
+        {
+            var totals = await GetFinanceGrain(month).GetMonthlyTotalsAsync();
+            totalIncome += totals.TotalIncome;
+            totalExpenses += totals.TotalExpenses;
+            payingUnits.UnionWith(totals.PayingUnits);
+
+            if (month == currentMonth)
+            {
+                currentMonthTotals = totals;
+            }
+        }
+
+        // Receivables are always about the current month, regardless of range.
+        currentMonthTotals ??= await GetFinanceGrain(currentMonth).GetMonthlyTotalsAsync();
 
         var totalUnits = _state.State.Units.Count;
-        var paidUnits = _state.State.Payments.Values
-            .Where(p => p.PaymentDate >= startDate && p.PaymentDate <= endDate)
-            .Select(p => p.UnitNumber)
-            .Distinct()
-            .Count();
 
-        return Task.FromResult(new FinancialSummary
+        return new FinancialSummary
         {
             TotalIncome = totalIncome,
             TotalExpenses = totalExpenses,
             Balance = totalIncome - totalExpenses,
-            CollectionRate = totalUnits > 0 ? (decimal)paidUnits / totalUnits * 100 : 0,
-            OutstandingReceivables = CalculateOutstandingReceivables()
-        });
+            CollectionRate = totalUnits > 0 ? (decimal)payingUnits.Count / totalUnits * 100 : 0,
+            OutstandingReceivables = CalculateOutstandingReceivables(currentMonthTotals)
+        };
     }
 
     /// <summary>
@@ -433,7 +550,7 @@ public class BuildingGrain : Grain, IBuildingGrain
     /// floored at zero per unit. Mirrors FeeStructure.CalculateFee from the domain
     /// (fixed amount + per-m2 amount).
     /// </summary>
-    private decimal CalculateOutstandingReceivables()
+    private decimal CalculateOutstandingReceivables(MonthlyTotals currentMonth)
     {
         var now = DateTime.UtcNow;
         var activeFee = _state.State.FeeStructures
@@ -450,13 +567,48 @@ public class BuildingGrain : Grain, IBuildingGrain
         foreach (var unit in _state.State.Units.Values)
         {
             var expected = (activeFee.FixedAmount ?? 0m) + activeFee.AmountPerM2 * unit.AreaM2;
-            var paid = _state.State.Payments.Values
-                .Where(p => p.Year == now.Year && p.Month == now.Month && p.UnitNumber == unit.Number)
-                .Sum(p => p.Amount);
+            currentMonth.PaidAmountsByUnit.TryGetValue(unit.Number, out var paid);
             outstanding += Math.Max(0, expected - paid);
         }
 
         return outstanding;
+    }
+
+    public async Task RecordPaymentAsync(PaymentInfo payment)
+    {
+        // Payments live in the grain of the month they were received;
+        // PaymentDate is the routing key and the source of truth for income
+        // range queries.
+        await GetFinanceGrain(payment.PaymentDate).RecordPaymentAsync(payment);
+
+        // Receivables are per billing month. A late or advance payment is
+        // also credited to the month it pays for.
+        var billingPeriod = FinanceGrain.BillingPeriodOf(payment);
+        if (billingPeriod != new DateTime(payment.PaymentDate.Year, payment.PaymentDate.Month, 1))
+        {
+            await GetFinanceGrain(billingPeriod).RecordPeriodPaymentAsync(payment);
+        }
+    }
+
+    public Task RecordExpenseAsync(ExpenseInfo expense)
+    {
+        return GetFinanceGrain(expense.ExpenseDate).RecordExpenseAsync(expense);
+    }
+
+    private IFinanceGrain GetFinanceGrain(DateTime date) =>
+        GrainFactory.GetGrain<IFinanceGrain>($"{this.GetPrimaryKeyString()}|{date:yyyy-MM}");
+
+    /// <summary>Month keys ("yyyy-MM") from start to end, inclusive. Max 1200 months.</summary>
+    private static IEnumerable<DateTime> EnumerateMonths(DateTime start, DateTime end)
+    {
+        var current = new DateTime(start.Year, start.Month, 1);
+        var last = new DateTime(end.Year, end.Month, 1);
+        var guard = 0;
+        while (current <= last && guard++ < 1200)
+        {
+            yield return current;
+            current = current.AddMonths(1);
+        }
     }
 
     public async Task SetFeeStructureAsync(FeeStructureInfo fee)
@@ -484,42 +636,6 @@ public class BuildingGrain : Grain, IBuildingGrain
             IsActive = true
         });
 
-        _state.State.UpdatedAt = DateTime.UtcNow;
-        await _state.WriteStateAsync();
-    }
-
-    public async Task RecordPaymentAsync(PaymentInfo payment)
-    {
-        var state = new PaymentState
-        {
-            Id = payment.Id,
-            UnitNumber = payment.UnitNumber,
-            Amount = payment.Amount,
-            PaymentDate = payment.PaymentDate,
-            Month = payment.Month,
-            Year = payment.Year,
-            Reference = payment.Reference
-        };
-        
-        _state.State.Payments[payment.Id] = state;
-        _state.State.UpdatedAt = DateTime.UtcNow;
-        await _state.WriteStateAsync();
-    }
-
-    public async Task RecordExpenseAsync(ExpenseInfo expense)
-    {
-        var state = new ExpenseState
-        {
-            Id = expense.Id,
-            Amount = expense.Amount,
-            ExpenseDate = expense.ExpenseDate,
-            Category = expense.Category,
-            Description = expense.Description,
-            Vendor = expense.Vendor,
-            IsApproved = false
-        };
-        
-        _state.State.Expenses[expense.Id] = state;
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
     }
@@ -581,6 +697,10 @@ public class BuildingAggregateState
     [Id(15)] public Dictionary<Guid, KeyState> Keys { get; set; } = new();
     [Id(16)] public Dictionary<Guid, WorkOrderState> WorkOrders { get; set; } = new();
     [Id(17)] public Dictionary<Guid, AnnouncementState> Announcements { get; set; } = new();
+    // Payments and expenses live in per-month finance grains keyed
+    // "{buildingId}|{yyyy-MM}" — see IFinanceGrain. These two fields only hold
+    // pre-split data until MigrateLegacyFinanceAsync moves it; names and ids
+    // must stay as they are so stored state still deserializes.
     [Id(18)] public Dictionary<Guid, PaymentState> Payments { get; set; } = new();
     [Id(19)] public Dictionary<Guid, ExpenseState> Expenses { get; set; } = new();
     [Id(20)] public List<FeeStructureState> FeeStructures { get; set; } = new();

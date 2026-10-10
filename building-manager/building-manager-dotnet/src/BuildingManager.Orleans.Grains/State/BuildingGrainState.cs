@@ -94,6 +94,7 @@ public class AnnouncementState
     [Id(9)] public DateTime? ExpiresAt { get; set; }
 }
 
+/// <summary>Legacy (pre finance-grain) payment record; only read for migration.</summary>
 [GenerateSerializer]
 public class PaymentState
 {
@@ -106,6 +107,7 @@ public class PaymentState
     [Id(6)] public string? Reference { get; set; }
 }
 
+/// <summary>Legacy (pre finance-grain) expense record; only read for migration.</summary>
 [GenerateSerializer]
 public class ExpenseState
 {

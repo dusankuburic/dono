@@ -284,7 +284,7 @@ public class BuildingsController : ControllerBase
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
         var payment = new PaymentInfo
         {
-            Id = Guid.NewGuid(),
+            Id = IdOrNew(request.Id),
             UnitNumber = request.UnitNumber,
             Amount = request.Amount,
             PaymentDate = DateTime.UtcNow,
@@ -304,7 +304,7 @@ public class BuildingsController : ControllerBase
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
         var expense = new ExpenseInfo
         {
-            Id = Guid.NewGuid(),
+            Id = IdOrNew(request.Id),
             Category = request.Category,
             Amount = request.Amount,
             Description = request.Description ?? string.Empty,
@@ -374,6 +374,13 @@ public class BuildingsController : ControllerBase
         await userGrain.GrantBuildingAccessAsync(buildingId);
         return Ok();
     }
+
+    /// <summary>
+    /// Client-supplied ids make payment/expense creation idempotent: finance
+    /// grains ignore a repeated id, so a retried request is recorded once.
+    /// </summary>
+    private static Guid IdOrNew(Guid? clientId) =>
+        clientId is { } id && id != Guid.Empty ? id : Guid.NewGuid();
 
     /// <summary>Removes a user's access to this building.</summary>
     [HttpDelete("{buildingId}/access/{email}")]
@@ -503,6 +510,9 @@ public record CreateAnnouncementRequest
 
 public record PaymentInfoRequest
 {
+    /// <summary>Optional. Reuse the same id when retrying so the payment is recorded only once.</summary>
+    public Guid? Id { get; init; }
+
     [Required, MaxLength(20)]
     public string UnitNumber { get; init; } = "";
 
@@ -521,6 +531,9 @@ public record PaymentInfoRequest
 
 public record ExpenseInfoRequest
 {
+    /// <summary>Optional. Reuse the same id when retrying so the expense is recorded only once.</summary>
+    public Guid? Id { get; init; }
+
     public ExpenseCategory Category { get; init; }
 
     [Range(0.01, 100_000_000)]

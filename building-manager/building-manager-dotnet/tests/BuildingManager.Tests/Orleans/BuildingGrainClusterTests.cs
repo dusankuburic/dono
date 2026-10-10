@@ -255,6 +255,49 @@ public class BuildingGrainClusterTests : IClassFixture<ClusterFixture>
     }
 
     [Fact]
+    public async Task OutstandingReceivables_Count_Payments_By_Billing_Month_Not_Received_Date()
+    {
+        var grain = GetBuildingGrain();
+        await grain.InitializeAsync(BuildingInfo());
+        var now = DateTime.UtcNow;
+        var lastMonth = now.AddMonths(-1);
+
+        await grain.AddOrUpdateUnitAsync(UnitInfo("1", 100m, 10m));
+        await grain.SetFeeStructureAsync(new FeeStructureInfo
+        {
+            Name = "Standard",
+            AmountPerM2 = 10m,
+            FixedAmount = 200m,
+            EffectiveFrom = now
+        });
+
+        // Received now, but for last month's fee: this month is still owed.
+        await grain.RecordPaymentAsync(new PaymentInfo
+        {
+            Id = Guid.NewGuid(), UnitNumber = "1", Amount = 1200m,
+            PaymentDate = now, Month = lastMonth.Month, Year = lastMonth.Year
+        });
+        (await grain.GetFinancialSummaryAsync()).OutstandingReceivables.Should().Be(1200m);
+
+        // Received last month, in advance for this month's fee: now paid.
+        var advance = new PaymentInfo
+        {
+            Id = Guid.NewGuid(), UnitNumber = "1", Amount = 1200m,
+            PaymentDate = lastMonth, Month = now.Month, Year = now.Year
+        };
+        await grain.RecordPaymentAsync(advance);
+
+        var summary = await grain.GetFinancialSummaryAsync();
+        summary.OutstandingReceivables.Should().Be(0m);
+        // Income is by received date and counts each payment once.
+        summary.TotalIncome.Should().Be(2400m);
+
+        // A retried call with the same payment id is not counted twice.
+        await grain.RecordPaymentAsync(advance);
+        (await grain.GetFinancialSummaryAsync()).TotalIncome.Should().Be(2400m);
+    }
+
+    [Fact]
     public async Task FeeStructure_Validation()
     {
         var grain = GetBuildingGrain();
