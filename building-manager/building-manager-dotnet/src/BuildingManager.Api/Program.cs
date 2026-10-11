@@ -125,8 +125,7 @@ builder.Services
 builder.Services.AddAuthorization(options =>
 {
     // Mutations that change building data require a management role.
-    options.AddPolicy(AuthPolicies.ManageOnly, policy => policy.RequireRole(
-        "Manager", "SubstituteManager", "Admin", "CompanyAdmin"));
+    options.AddPolicy(AuthPolicies.ManageOnly, policy => policy.RequireRole(AuthPolicies.ManageRoles));
 
     // Building-scoped endpoints additionally require access to that building
     // (admins bypass), checked by BuildingAccessHandler.

@@ -28,12 +28,35 @@ public interface IBuildingGrain : IGrainWithStringKey
     Task<WorkOrderInfo> CreateWorkOrderAsync(CreateWorkOrderRequest request);
     Task<WorkOrderInfo> UpdateWorkOrderStatusAsync(Guid workOrderId, WorkOrderStatus status, string? notes);
     
+    /// <summary>
+    /// Publishes an announcement now or at ScheduledFor (not in the past),
+    /// optionally until ExpiresAt. Throws ArgumentException for invalid input.
+    /// </summary>
     Task CreateAnnouncementAsync(AnnouncementInfo announcement);
+
+    /// <summary>The residents' feed: published and not expired, pinned first.</summary>
     Task<IEnumerable<AnnouncementInfo>> GetAnnouncementsAsync(int limit = 20);
+
+    /// <summary>Every announcement kept (the last 12 months, plus pinned ones), including scheduled and expired.</summary>
+    Task<IEnumerable<AnnouncementInfo>> GetAnnouncementHistoryAsync();
+
+    Task SetAnnouncementPinnedAsync(Guid announcementId, bool pinned);
+
+    /// <summary>Takes an announcement out of the feed by expiring it now; it stays in the history.</summary>
+    Task ArchiveAnnouncementAsync(Guid announcementId);
     
     Task<FinancialSummary> GetFinancialSummaryAsync(DateTime? from = null, DateTime? to = null);
     Task RecordPaymentAsync(PaymentInfo payment);
     Task RecordExpenseAsync(ExpenseInfo expense);
+
+    /// <summary>Per-unit fee status for a billing month, judged against the fee in force by the end of it.</summary>
+    Task<MonthPaymentStatus> GetPaymentStatusAsync(int year, int month);
+
+    /// <summary>Payments received and expenses incurred in a month, plus payments received elsewhere for it.</summary>
+    Task<MonthLedger> GetFinanceLedgerAsync(int year, int month);
+
+    /// <summary>A unit's payments received in the last <paramref name="months"/> months, newest first.</summary>
+    Task<List<PaymentInfo>> GetUnitPaymentHistoryAsync(string unitNumber, int months = 12);
 
     /// <summary>
     /// Activates a new fee structure and deactivates the previously active one.
@@ -176,6 +199,7 @@ public record AnnouncementInfo
     [Id(7)] public Guid CreatedBy { get; init; }
     [Id(8)] public bool IsPinned { get; init; }
     [Id(9)] public DateTime? ExpiresAt { get; init; }
+    [Id(10)] public string? CreatedByName { get; init; }
 }
 
 [GenerateSerializer]
@@ -208,6 +232,44 @@ public record PaymentInfo
     [Id(4)] public int? Month { get; init; }
     [Id(5)] public int? Year { get; init; }
     [Id(6)] public string? Reference { get; init; }
+    [Id(7)] public PaymentMethod? Method { get; init; }
+    [Id(8)] public string? Notes { get; init; }
+}
+
+/// <summary>
+/// How a unit stands with its monthly fee (UC-008 colours): paid this month
+/// (green), only last month paid (yellow), or two or more months unpaid (red).
+/// </summary>
+public enum PaymentStanding
+{
+    /// <summary>No fee structure in force, so nothing is due.</summary>
+    NoFee = 0,
+    Paid = 1,
+    OneMonthBehind = 2,
+    TwoOrMoreMonthsBehind = 3
+}
+
+/// <summary>Fee status of every unit for one billing month.</summary>
+[GenerateSerializer]
+public record MonthPaymentStatus
+{
+    [Id(0)] public int Year { get; init; }
+    [Id(1)] public int Month { get; init; }
+    /// <summary>Name of the fee structure in force that month, if any.</summary>
+    [Id(2)] public string? FeeName { get; init; }
+    [Id(3)] public List<UnitPaymentStatus> Units { get; init; } = new();
+}
+
+[GenerateSerializer]
+public record UnitPaymentStatus
+{
+    [Id(0)] public string UnitNumber { get; init; } = string.Empty;
+    [Id(1)] public decimal AreaM2 { get; init; }
+    /// <summary>Fee due for the month (fixed amount + amount per m² × area).</summary>
+    [Id(2)] public decimal Expected { get; init; }
+    /// <summary>Paid for this billing month, wherever it was received (partial and overpayments included).</summary>
+    [Id(3)] public decimal Paid { get; init; }
+    [Id(4)] public PaymentStanding Standing { get; init; }
 }
 
 [GenerateSerializer]

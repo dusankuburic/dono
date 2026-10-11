@@ -40,5 +40,7 @@ builder.Services.AddMudServices();
 builder.Services.AddScoped<IBuildingService, BuildingService>();
 builder.Services.AddScoped<IBuildingSelectionService, BuildingSelectionService>();
 builder.Services.AddScoped<IAssemblyService, AssemblyService>();
+builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
+builder.Services.AddScoped<IFinanceService, FinanceService>();
 
 await builder.Build().RunAsync();

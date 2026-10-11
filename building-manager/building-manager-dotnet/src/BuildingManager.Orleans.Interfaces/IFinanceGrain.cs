@@ -23,6 +23,19 @@ public interface IFinanceGrain : IGrainWithStringKey
     Task RecordExpenseAsync(ExpenseInfo expense);
 
     Task<MonthlyTotals> GetMonthlyTotalsAsync();
+
+    Task<MonthLedger> GetLedgerAsync();
+}
+
+/// <summary>The entries of one month, for listing them.</summary>
+[GenerateSerializer]
+public record MonthLedger
+{
+    /// <summary>Payments received this month, whatever month they pay for.</summary>
+    [Id(0)] public List<PaymentInfo> Payments { get; init; } = new();
+    [Id(1)] public List<ExpenseInfo> Expenses { get; init; } = new();
+    /// <summary>Payments received in other months that pay this month's fee.</summary>
+    [Id(2)] public List<PaymentInfo> PaymentsForThisMonthReceivedElsewhere { get; init; } = new();
 }
 
 /// <summary>Aggregated figures for one month, used by building summaries.</summary>

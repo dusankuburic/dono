@@ -13,19 +13,21 @@ public sealed class ClusterFixture : IAsyncLifetime
 {
     public TestCluster Cluster { get; private set; } = null!;
 
-    public Task InitializeAsync()
+    // Async all the way: the blocking Deploy()/StopAllSilos() starve xUnit's
+    // limited worker threads once more test classes start clusters at once
+    // than there are workers, and the whole run hangs.
+    public async Task InitializeAsync()
     {
         var builder = new TestClusterBuilder();
         builder.AddSiloBuilderConfigurator<TestSiloConfigurator>();
         Cluster = builder.Build();
-        Cluster.Deploy();
-        return Task.CompletedTask;
+        await Cluster.DeployAsync();
     }
 
-    public Task DisposeAsync()
+    public async Task DisposeAsync()
     {
-        Cluster.StopAllSilos();
-        return Task.CompletedTask;
+        await Cluster.StopAllSilosAsync();
+        await Cluster.DisposeAsync();
     }
 
     private sealed class TestSiloConfigurator : ISiloConfigurator

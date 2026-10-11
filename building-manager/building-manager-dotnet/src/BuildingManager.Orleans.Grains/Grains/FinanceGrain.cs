@@ -92,6 +92,16 @@ public class FinanceGrain : Grain, IFinanceGrain
         });
     }
 
+    public Task<MonthLedger> GetLedgerAsync()
+    {
+        return Task.FromResult(new MonthLedger
+        {
+            Payments = _state.State.Payments.OrderByDescending(p => p.PaymentDate).ToList(),
+            Expenses = _state.State.Expenses.OrderByDescending(e => e.ExpenseDate).ToList(),
+            PaymentsForThisMonthReceivedElsewhere = _state.State.PeriodPayments.OrderByDescending(p => p.PaymentDate).ToList()
+        });
+    }
+
     private static DateTime ParseMonth(string key)
     {
         var separator = key.LastIndexOf('|');

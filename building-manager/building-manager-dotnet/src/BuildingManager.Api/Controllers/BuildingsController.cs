@@ -251,7 +251,7 @@ public class BuildingsController : ControllerBase
     [HttpPost("{buildingId}/announcements")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
-    public async Task<ActionResult> CreateAnnouncement(string buildingId, [FromBody] CreateAnnouncementRequest request)
+    public async Task<ActionResult<AnnouncementInfo>> CreateAnnouncement(string buildingId, [FromBody] CreateAnnouncementRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
         var announcement = new AnnouncementInfo
@@ -261,10 +261,41 @@ public class BuildingsController : ControllerBase
             Content = request.Content,
             Type = request.Type,
             CreatedAt = DateTime.UtcNow,
-            CreatedBy = request.CreatedBy
+            ScheduledFor = request.ScheduledFor,
+            ExpiresAt = request.ExpiresAt,
+            IsPinned = request.IsPinned,
+            // The author is whoever is signed in, never what the client claims.
+            CreatedBy = Guid.TryParse(User.FindFirst("sub")?.Value, out var userId) ? userId : Guid.Empty,
+            CreatedByName = User.FindFirst("name")?.Value
         };
         await grain.CreateAnnouncementAsync(announcement);
-        return StatusCode(StatusCodes.Status201Created);
+        return StatusCode(StatusCodes.Status201Created, announcement);
+    }
+
+    /// <summary>All kept announcements, including scheduled, expired and archived ones.</summary>
+    [HttpGet("{buildingId}/announcements/history")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<IEnumerable<AnnouncementInfo>>> GetAnnouncementHistory(string buildingId) =>
+        Ok(await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetAnnouncementHistoryAsync());
+
+    [HttpPut("{buildingId}/announcements/{announcementId:guid}/pin")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> SetAnnouncementPinned(string buildingId, Guid announcementId, [FromBody] PinRequest request)
+    {
+        await _grainFactory.GetGrain<IBuildingGrain>(buildingId).SetAnnouncementPinnedAsync(announcementId, request.Pinned);
+        return Ok();
+    }
+
+    /// <summary>Removes the announcement from the residents' feed; it stays in the history.</summary>
+    [HttpPost("{buildingId}/announcements/{announcementId:guid}/archive")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> ArchiveAnnouncement(string buildingId, Guid announcementId)
+    {
+        await _grainFactory.GetGrain<IBuildingGrain>(buildingId).ArchiveAnnouncementAsync(announcementId);
+        return Ok();
     }
 
     [HttpGet("{buildingId}/finance/summary")]
@@ -282,18 +313,66 @@ public class BuildingsController : ControllerBase
     public async Task<ActionResult> RecordPayment(string buildingId, [FromBody] PaymentInfoRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
+        var unitNumber = request.UnitNumber.Trim();
+        await grain.GetUnitAsync(unitNumber); // 404 for a unit the building doesn't have
+
         var payment = new PaymentInfo
         {
             Id = IdOrNew(request.Id),
-            UnitNumber = request.UnitNumber,
+            UnitNumber = unitNumber,
             Amount = request.Amount,
-            PaymentDate = DateTime.UtcNow,
+            PaymentDate = EntryDate(request.PaymentDate, "payment"),
             Month = request.Month,
             Year = request.Year,
-            Reference = request.Reference
+            Reference = request.Reference,
+            Method = request.Method,
+            Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim()
         };
         await grain.RecordPaymentAsync(payment);
         return StatusCode(StatusCodes.Status201Created);
+    }
+
+    /// <summary>
+    /// Fee status of each unit for a billing month (default: this month).
+    /// Managers see every unit; other users only the units they are
+    /// registered at as residents (by their account email).
+    /// </summary>
+    [HttpGet("{buildingId}/finance/status")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<MonthPaymentStatus>> GetPaymentStatus(string buildingId, [FromQuery] int? year, [FromQuery] int? month)
+    {
+        var now = DateTime.UtcNow;
+        var status = await _grainFactory.GetGrain<IBuildingGrain>(buildingId)
+            .GetPaymentStatusAsync(year ?? now.Year, month ?? now.Month);
+
+        if (IsManager())
+            return Ok(status);
+
+        var ownUnits = await OwnUnitsAsync(buildingId);
+        return Ok(status with { Units = status.Units.Where(u => ownUnits.Contains(u.UnitNumber)).ToList() });
+    }
+
+    /// <summary>Payments received and expenses incurred in a month (default: this month).</summary>
+    [HttpGet("{buildingId}/finance/ledger")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<MonthLedger>> GetLedger(string buildingId, [FromQuery] int? year, [FromQuery] int? month)
+    {
+        var now = DateTime.UtcNow;
+        return Ok(await _grainFactory.GetGrain<IBuildingGrain>(buildingId)
+            .GetFinanceLedgerAsync(year ?? now.Year, month ?? now.Month));
+    }
+
+    /// <summary>A unit's payments of the last 12 months; owners only for their own units.</summary>
+    [HttpGet("{buildingId}/finance/payments")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<IEnumerable<PaymentInfo>>> GetUnitPayments(string buildingId, [FromQuery, Required] string unit)
+    {
+        unit = unit.Trim();
+        if (!IsManager() && !(await OwnUnitsAsync(buildingId)).Contains(unit))
+            return Forbid();
+
+        return Ok(await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetUnitPaymentHistoryAsync(unit));
     }
 
     [HttpPost("{buildingId}/finance/expenses")]
@@ -308,7 +387,7 @@ public class BuildingsController : ControllerBase
             Category = request.Category,
             Amount = request.Amount,
             Description = request.Description ?? string.Empty,
-            ExpenseDate = DateTime.UtcNow,
+            ExpenseDate = EntryDate(request.ExpenseDate, "expense"),
             Vendor = request.Vendor
         };
         await grain.RecordExpenseAsync(expense);
@@ -381,6 +460,40 @@ public class BuildingsController : ControllerBase
     /// </summary>
     private static Guid IdOrNew(Guid? clientId) =>
         clientId is { } id && id != Guid.Empty ? id : Guid.NewGuid();
+
+    /// <summary>
+    /// When a payment was received or an expense incurred: defaults to now,
+    /// may be backdated but not in the future (a day of slack for time zones).
+    /// </summary>
+    private static DateTime EntryDate(DateTime? requested, string what)
+    {
+        var now = DateTime.UtcNow;
+        if (requested is not { } date)
+            return now;
+
+        var utc = date.Kind == DateTimeKind.Local ? date.ToUniversalTime() : DateTime.SpecifyKind(date, DateTimeKind.Utc);
+        if (utc > now.AddDays(1))
+            throw new ArgumentException($"The {what} date cannot be in the future.");
+        if (utc.Year < 2000)
+            throw new ArgumentException($"The {what} date is not valid.");
+        return utc;
+    }
+
+    private bool IsManager() => AuthPolicies.ManageRoles.Any(User.IsInRole);
+
+    /// <summary>Units where the signed-in user is registered as a resident (matched by email).</summary>
+    private async Task<HashSet<string>> OwnUnitsAsync(string buildingId)
+    {
+        var email = User.FindFirst("email")?.Value;
+        if (string.IsNullOrEmpty(email))
+            return new HashSet<string>();
+
+        var residents = await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetResidentsAsync();
+        return residents
+            .Where(r => r.UnitNumber is not null && string.Equals(r.Email?.Trim(), email, StringComparison.OrdinalIgnoreCase))
+            .Select(r => r.UnitNumber!)
+            .ToHashSet();
+    }
 
     /// <summary>Removes a user's access to this building.</summary>
     [HttpDelete("{buildingId}/access/{email}")]
@@ -504,8 +617,20 @@ public record CreateAnnouncementRequest
     [Required, MaxLength(5000)]
     public string Content { get; init; } = "";
 
-    public AnnouncementType Type { get; init; }
-    public Guid CreatedBy { get; init; }
+    public AnnouncementType Type { get; init; } = AnnouncementType.General;
+
+    /// <summary>Publish later (UTC); omit to publish now.</summary>
+    public DateTime? ScheduledFor { get; init; }
+
+    /// <summary>Leaves the residents' feed at this time (UTC); omit to keep it.</summary>
+    public DateTime? ExpiresAt { get; init; }
+
+    public bool IsPinned { get; init; }
+}
+
+public record PinRequest
+{
+    public bool Pinned { get; init; }
 }
 
 public record PaymentInfoRequest
@@ -527,6 +652,14 @@ public record PaymentInfoRequest
 
     [MaxLength(100)]
     public string? Reference { get; init; }
+
+    /// <summary>When the money was received (UTC); defaults to now.</summary>
+    public DateTime? PaymentDate { get; init; }
+
+    public PaymentMethod? Method { get; init; }
+
+    [MaxLength(500)]
+    public string? Notes { get; init; }
 }
 
 public record ExpenseInfoRequest
@@ -544,6 +677,9 @@ public record ExpenseInfoRequest
 
     [MaxLength(200)]
     public string? Vendor { get; init; }
+
+    /// <summary>When the expense was incurred (UTC); defaults to now.</summary>
+    public DateTime? ExpenseDate { get; init; }
 }
 
 public record FeeStructureRequest

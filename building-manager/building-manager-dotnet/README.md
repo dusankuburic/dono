@@ -154,6 +154,38 @@ The Blazor client prints the minutes from `/buildings/{id}/assemblies/{assemblyI
 Not yet implemented: sending notices/minutes to owners, reminders, PDF export,
 tracking owners who miss sessions.
 
+### Announcements
+
+`/api/buildings/{id}/announcements` (Blazor: **Announcements**). Everyone with
+access reads the feed (published, not expired, pinned first; emergencies are
+highlighted). Managers publish now or at a future time, optionally until an
+expiry date, pin/unpin (`PUT .../{announcementId}/pin`) and archive
+(`POST .../{announcementId}/archive`, which expires it but keeps it on record).
+`GET .../announcements/history` lists everything kept, including scheduled
+and expired items. Unpinned announcements are pruned after 12 months. The
+author is taken from the signed-in account. Delivery by SMS/email/push and
+recipient selection are not implemented yet.
+
+### Fees, payments and expenses
+
+`/api/buildings/{id}/finance/...` (Blazor: **Finance**).
+
+- `GET status?year=&month=`: per-unit fee status for a billing month. Due =
+  fixed amount + per m² × area, using the fee structure in force by the end of
+  that month. Standing: paid / not paid this month (last month paid) / 2+ months
+  unpaid / no fee. Managers see every unit; other users only the units where
+  they are registered as a resident with their account email.
+- `POST payments`: unit, amount, billing month (`month`/`year`), date received
+  (`paymentDate`, defaults to now, not in the future), method, reference, notes,
+  optional client `id` for safe retries. The Blazor form warns before saving a
+  payment that matches an existing one (same unit, month and amount).
+- `GET ledger?year=&month=` (managers): payments received and expenses incurred
+  that month, plus payments received in other months for it.
+- `GET payments?unit=`: a unit's payments of the last 12 months (owners: own units only).
+- `POST expenses`: category, amount, description, vendor, date.
+
+Payment reminders and Excel/PDF exports are not implemented yet.
+
 ## Architecture
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed documentation.

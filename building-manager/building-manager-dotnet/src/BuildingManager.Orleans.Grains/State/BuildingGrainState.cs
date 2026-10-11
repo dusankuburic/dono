@@ -92,6 +92,7 @@ public class AnnouncementState
     [Id(7)] public Guid CreatedBy { get; set; }
     [Id(8)] public bool IsPinned { get; set; }
     [Id(9)] public DateTime? ExpiresAt { get; set; }
+    [Id(10)] public string? CreatedByName { get; set; }
 }
 
 /// <summary>Legacy (pre finance-grain) payment record; only read for migration.</summary>

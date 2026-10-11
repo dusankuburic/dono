@@ -1,6 +1,8 @@
 @page "/finance"
 @inject IBuildingService BuildingService
+@inject IFinanceService FinanceService
 @inject IBuildingSelectionService BuildingSelection
+@inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
 <PageTitle>Finance</PageTitle>
@@ -28,7 +30,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Total Income (12 months)</MudText>
-                    <MudText Typo="Typo.h5">@_summary.TotalIncome.ToString("N2") RSD</MudText>
+                    <MudText Typo="Typo.h5">@FinanceLabels.Money(_summary.TotalIncome)</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -36,7 +38,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Total Expenses</MudText>
-                    <MudText Typo="Typo.h5">@_summary.TotalExpenses.ToString("N2") RSD</MudText>
+                    <MudText Typo="Typo.h5">@FinanceLabels.Money(_summary.TotalExpenses)</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -44,7 +46,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Balance</MudText>
-                    <MudText Typo="Typo.h5" Color="@(_summary.Balance >= 0 ? Color.Success : Color.Error)">@_summary.Balance.ToString("N2") RSD</MudText>
+                    <MudText Typo="Typo.h5" Color="@(_summary.Balance >= 0 ? Color.Success : Color.Error)">@FinanceLabels.Money(_summary.Balance)</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -52,7 +54,7 @@ else
             <MudPaper Class="pa-4" Elevation="2">
                 <MudStack Spacing="0">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">Outstanding (this month)</MudText>
-                    <MudText Typo="Typo.h5" Color="@(_summary.OutstandingReceivables > 0 ? Color.Warning : Color.Success)">@_summary.OutstandingReceivables.ToString("N2") RSD</MudText>
+                    <MudText Typo="Typo.h5" Color="@(_summary.OutstandingReceivables > 0 ? Color.Warning : Color.Success)">@FinanceLabels.Money(_summary.OutstandingReceivables)</MudText>
                 </MudStack>
             </MudPaper>
         </MudItem>
@@ -66,43 +68,87 @@ else
         </MudItem>
     </MudGrid>
 
-    <MudText Typo="Typo.h5" Class="mt-8 mb-2">Monthly Fee</MudText>
-    <MudPaper Class="pa-4" Elevation="2">
-        <MudGrid AlignItems="End">
-            <MudItem xs="12" sm="6" md="4">
-                <MudTextField @bind-Value="_feeName" Label="Fee name" />
-            </MudItem>
-            <MudItem xs="12" sm="6" md="3">
-                <MudNumericField @bind-Value="_amountPerM2" Label="Amount per m² (RSD)" Min="0" />
-            </MudItem>
-            <MudItem xs="12" sm="6" md="3">
-                <MudNumericField @bind-Value="_fixedAmount" Label="Fixed amount (RSD, optional)" Min="0" />
-            </MudItem>
-            <MudItem xs="12" sm="6" md="2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveFee" Disabled="@_saving">
-                    @(_saving ? "Saving..." : "Save")
-                </MudButton>
-            </MudItem>
-        </MudGrid>
-        <MudText Typo="Typo.caption" Class="mt-2">
-            Monthly fee = fixed amount + (amount per m² × unit area). Saving a new fee replaces the active one.
-        </MudText>
-    </MudPaper>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-6 mb-2">
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" Title="Previous month" Disabled="@_busy" OnClick="@(() => ChangeMonth(-1))" />
+        <MudText Typo="Typo.h5" Style="min-width: 220px; text-align: center;">@FinanceLabels.MonthName(_year, _month)</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Title="Next month" Disabled="@(_busy || IsNextMonthBeyondLimit)" OnClick="@(() => ChangeMonth(1))" />
+    </MudStack>
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-2" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
+    }
+
+    @if (_canManage)
+    {
+        <MudTabs Elevation="0" ApplyEffectsToContainer="true" PanelClass="pt-4">
+            <MudTabPanel Text="Fees by unit">@FeesTab</MudTabPanel>
+            <MudTabPanel Text="Payments and expenses">@LedgerTab</MudTabPanel>
+            <MudTabPanel Text="Fee settings">@FeeSettingsTab</MudTabPanel>
+        </MudTabs>
+    }
+    else
+    {
+        @FeesTab
+    }
 }
 
 @code {
     private string? _buildingId;
     private bool _noBuildings;
+    private bool _canManage;
     private FinancialSummary? _summary;
+    private MonthPaymentStatus? _status;
+    private MonthLedger? _ledger;
     private string? _loadError;
+    private string? _error;
+    private bool _busy;
 
+    private int _year = DateTime.Today.Year;
+    private int _month = DateTime.Today.Month;
+
+    // Unit payment history shown under the fee table.
+    private string? _historyUnit;
+    private List<PaymentInfo>? _history;
+
+    // Record payment form.
+    private bool _paymentFormOpen;
+    private string? _payUnit;
+    private decimal _payAmount;
+    private int _payYear;
+    private int _payMonth;
+    private DateTime? _payReceived = DateTime.Today;
+    private PaymentMethod _payMethod = PaymentMethod.BankTransfer;
+    private string? _payReference;
+    private string? _payNotes;
+    private string? _payError;
+
+    // Record expense form.
+    private ExpenseCategory _expCategory = ExpenseCategory.Maintenance;
+    private decimal _expAmount;
+    private string _expDescription = string.Empty;
+    private string? _expVendor;
+    private DateTime? _expDate = DateTime.Today;
+    private string? _expError;
+
+    // Fee settings form.
     private string _feeName = "Standard";
     private decimal _amountPerM2;
     private decimal? _fixedAmount;
-    private bool _saving;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>Advance payments may be recorded for next month, not further ahead.</summary>
+    private bool IsNextMonthBeyondLimit => new DateTime(_year, _month, 1) >= new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1).AddMonths(1);
 
     protected override async Task OnInitializedAsync()
     {
+        if (AuthState is not null)
+        {
+            _canManage = UserRoles.CanManage((await AuthState).User);
+        }
+
         try
         {
             _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
@@ -113,26 +159,161 @@ else
             }
 
             _summary = await BuildingService.GetFinancialSummaryAsync(_buildingId);
+            await LoadMonth();
         }
         catch (Exception ex)
         {
-            _loadError = $"Could not load financial summary: {ex.Message}";
+            _loadError = $"Could not load the finances: {ex.Message}";
+        }
+    }
+
+    private async Task LoadMonth()
+    {
+        _error = null;
+        try
+        {
+            _status = await FinanceService.GetPaymentStatusAsync(_buildingId!, _year, _month);
+            _ledger = _canManage ? await FinanceService.GetLedgerAsync(_buildingId!, _year, _month) : null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task ChangeMonth(int delta)
+    {
+        var next = new DateTime(_year, _month, 1).AddMonths(delta);
+        (_year, _month) = (next.Year, next.Month);
+        _historyUnit = null;
+        _history = null;
+        _busy = true;
+        await LoadMonth();
+        _busy = false;
+    }
+
+    private async Task ShowHistory(string unit)
+    {
+        if (_historyUnit == unit)
+        {
+            _historyUnit = null;
+            _history = null;
+            return;
+        }
+
+        _historyUnit = unit;
+        _history = null;
+        try
+        {
+            _history = await FinanceService.GetUnitPaymentsAsync(_buildingId!, unit);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _historyUnit = null;
+        }
+    }
+
+    private void OpenPaymentForm(UnitPaymentStatus? unit)
+    {
+        _payUnit = unit?.UnitNumber ?? _status?.Units.FirstOrDefault()?.UnitNumber;
+        _payAmount = unit is null ? 0 : Math.Max(0, unit.Expected - unit.Paid);
+        (_payYear, _payMonth) = (_year, _month);
+        _payReceived = DateTime.Today;
+        _payReference = _payNotes = _payError = null;
+        _paymentFormOpen = true;
+    }
+
+    private async Task SavePayment()
+    {
+        _payError = null;
+        if (string.IsNullOrWhiteSpace(_payUnit) || _payAmount <= 0 || _payReceived is not { } received)
+        {
+            _payError = "Choose the unit, a positive amount and the date it was received.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            // UC-008: warn before saving what looks like the same payment twice.
+            var earlier = await FinanceService.GetUnitPaymentsAsync(_buildingId!, _payUnit);
+            var duplicate = earlier.FirstOrDefault(p => p.Amount == _payAmount && p.Year == _payYear && p.Month == _payMonth);
+            if (duplicate is not null && await DialogService.ShowMessageBox("Possible duplicate",
+                    $"Unit {_payUnit} already has a payment of {FinanceLabels.Money(_payAmount)} for {FinanceLabels.MonthName(_payYear, _payMonth)}, " +
+                    $"received {duplicate.PaymentDate.ToLocalTime():yyyy-MM-dd}. Record another one?",
+                    yesText: "Record anyway", cancelText: "Back") != true)
+            {
+                return;
+            }
+
+            // Noon local time keeps the chosen day when converted to UTC.
+            var receivedUtc = DateTime.SpecifyKind(received.Date.AddHours(12), DateTimeKind.Local).ToUniversalTime();
+            await FinanceService.RecordPaymentAsync(_buildingId!, new PaymentDraft(
+                Guid.NewGuid(), _payUnit, _payAmount, _payYear, _payMonth, receivedUtc, _payMethod,
+                string.IsNullOrWhiteSpace(_payReference) ? null : _payReference.Trim(),
+                string.IsNullOrWhiteSpace(_payNotes) ? null : _payNotes.Trim()));
+
+            Snackbar.Add($"Payment recorded for unit {_payUnit}", Severity.Success);
+            _paymentFormOpen = false;
+            await RefreshAfterChange(_payUnit);
+        }
+        catch (Exception ex)
+        {
+            _payError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveExpense()
+    {
+        _expError = null;
+        if (_expAmount <= 0 || string.IsNullOrWhiteSpace(_expDescription) || _expDate is not { } date)
+        {
+            _expError = "Enter a positive amount, a description and the date.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var incurredUtc = DateTime.SpecifyKind(date.Date.AddHours(12), DateTimeKind.Local).ToUniversalTime();
+            await FinanceService.RecordExpenseAsync(_buildingId!, new ExpenseDraft(
+                Guid.NewGuid(), _expCategory, _expAmount, _expDescription.Trim(),
+                string.IsNullOrWhiteSpace(_expVendor) ? null : _expVendor.Trim(), incurredUtc));
+
+            Snackbar.Add("Expense recorded", Severity.Success);
+            _expAmount = 0;
+            _expDescription = string.Empty;
+            _expVendor = null;
+            await RefreshAfterChange(null);
+        }
+        catch (Exception ex)
+        {
+            _expError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 
     private async Task SaveFee()
     {
-        if (_buildingId is null || _amountPerM2 < 0)
+        if (_amountPerM2 < 0)
         {
             return;
         }
 
-        _saving = true;
+        _busy = true;
         try
         {
-            await BuildingService.SetFeeStructureAsync(_buildingId, string.IsNullOrWhiteSpace(_feeName) ? "Standard" : _feeName, _amountPerM2, _fixedAmount);
-            _summary = await BuildingService.GetFinancialSummaryAsync(_buildingId);
+            await BuildingService.SetFeeStructureAsync(_buildingId!, string.IsNullOrWhiteSpace(_feeName) ? "Standard" : _feeName, _amountPerM2, _fixedAmount);
             Snackbar.Add("Fee structure saved", Severity.Success);
+            await RefreshAfterChange(null);
         }
         catch (Exception ex)
         {
@@ -140,7 +321,284 @@ else
         }
         finally
         {
-            _saving = false;
+            _busy = false;
         }
     }
+
+    private async Task RefreshAfterChange(string? unit)
+    {
+        _summary = await BuildingService.GetFinancialSummaryAsync(_buildingId!);
+        await LoadMonth();
+        if (unit is not null && _historyUnit == unit)
+        {
+            _history = await FinanceService.GetUnitPaymentsAsync(_buildingId!, unit);
+        }
+    }
+
+    private static string ForMonth(PaymentInfo p) =>
+        p.Year is { } y && p.Month is { } m ? FinanceLabels.MonthName(y, m) : "-";
+
+    private static string LocalDate(DateTime utc) => utc.ToLocalTime().ToString("yyyy-MM-dd");
+
+    private RenderFragment FeesTab => __builder =>
+    {
+        if (_status is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+            return;
+        }
+
+        if (_status.FeeName is null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                No monthly fee was in force in @FinanceLabels.MonthName(_year, _month), so nothing is due.
+                @if (_canManage) { <text>Set it under Fee settings.</text> }
+            </MudAlert>
+        }
+        else
+        {
+            var due = _status.Units.Sum(u => u.Expected);
+            var paid = _status.Units.Sum(u => Math.Min(u.Paid, u.Expected));
+            var paidUnits = _status.Units.Count(u => u.Standing == PaymentStanding.Paid);
+            <MudText Typo="Typo.body2" Class="mb-2">
+                Fee "@_status.FeeName": @FinanceLabels.Money(paid) of @FinanceLabels.Money(due) collected,
+                @paidUnits of @_status.Units.Count units paid in full.
+            </MudText>
+        }
+
+        if (_canManage && _paymentFormOpen)
+        {
+            @PaymentForm
+        }
+
+        <MudTable Items="@_status.Units" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+            <HeaderContent>
+                <MudTh>Unit</MudTh>
+                <MudTh>Area</MudTh>
+                <MudTh>Due</MudTh>
+                <MudTh>Paid</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                @{ var (text, color) = FinanceLabels.Standing(context.Standing); }
+                <MudTd DataLabel="Unit">@context.UnitNumber</MudTd>
+                <MudTd DataLabel="Area">@context.AreaM2.ToString("0.##") m²</MudTd>
+                <MudTd DataLabel="Due">@FinanceLabels.Money(context.Expected)</MudTd>
+                <MudTd DataLabel="Paid">
+                    @FinanceLabels.Money(context.Paid)
+                    @if (context.Paid > 0 && context.Paid < context.Expected)
+                    {
+                        <MudChip Size="Size.Small" Variant="Variant.Outlined">Partial</MudChip>
+                    }
+                    else if (context.Expected > 0 && context.Paid > context.Expected)
+                    {
+                        <MudChip Size="Size.Small" Variant="Variant.Outlined">Overpaid</MudChip>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Status"><MudChip Size="Size.Small" Color="@color">@text</MudChip></MudTd>
+                <MudTd Style="text-align: right;">
+                    @if (_canManage)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="@_busy" OnClick="@(() => OpenPaymentForm(context))">Record payment</MudButton>
+                    }
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ShowHistory(context.UnitNumber))">
+                        @(_historyUnit == context.UnitNumber ? "Hide history" : "History")
+                    </MudButton>
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudTd Colspan="6" Class="pa-4" Align="Align.Center">
+                    @(_canManage ? "This building has no units yet." : "You are not registered as a resident of any unit in this building.")
+                </MudTd>
+            </NoRecordsContent>
+        </MudTable>
+
+        if (_historyUnit is not null)
+        {
+            <MudPaper Class="pa-4 mt-3" Outlined="true">
+                <MudText Typo="Typo.h6" Class="mb-2">Unit @_historyUnit: payments of the last 12 months</MudText>
+                @if (_history is null)
+                {
+                    <MudProgressLinear Indeterminate="true" />
+                }
+                else
+                {
+                    @PaymentTable(_history, showUnit: false)
+                }
+            </MudPaper>
+        }
+    };
+
+    private RenderFragment PaymentForm => __builder =>
+    {
+        <MudPaper Class="pa-4 mb-3" Outlined="true">
+            <MudText Typo="Typo.h6" Class="mb-2">Record payment</MudText>
+            <MudGrid>
+                <MudItem xs="6" md="2">
+                    <MudSelect T="string" @bind-Value="_payUnit" Label="Unit">
+                        @foreach (var u in _status!.Units)
+                        {
+                            <MudSelectItem Value="@u.UnitNumber">@u.UnitNumber</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="decimal" @bind-Value="_payAmount" Label="Amount (RSD)" Min="0" />
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudSelect T="int" @bind-Value="_payMonth" Label="For month">
+                        @for (var m = 1; m <= 12; m++)
+                        {
+                            var month = m;
+                            <MudSelectItem Value="@month">@System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(month)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int" @bind-Value="_payYear" Label="Year" Min="2000" Max="2200" />
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudDatePicker @bind-Date="_payReceived" Label="Received on" MaxDate="DateTime.Today" DateFormat="yyyy-MM-dd" />
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudSelect T="PaymentMethod" @bind-Value="_payMethod" Label="Method">
+                        @foreach (var method in Enum.GetValues<PaymentMethod>())
+                        {
+                            <MudSelectItem Value="@method">@FinanceLabels.Method(method)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_payReference" Label="Reference (optional)" MaxLength="100" />
+                </MudItem>
+                <MudItem xs="12" md="8">
+                    <MudTextField @bind-Value="_payNotes" Label="Notes (optional)" MaxLength="500" />
+                </MudItem>
+            </MudGrid>
+            @if (_payError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_payError</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SavePayment">Save payment</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => _paymentFormOpen = false)">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    };
+
+    private RenderFragment PaymentTable(List<PaymentInfo> payments, bool showUnit) => __builder =>
+    {
+        <MudTable Items="@payments" Dense="true" Breakpoint="Breakpoint.Sm" Elevation="0">
+            <HeaderContent>
+                <MudTh>Received</MudTh>
+                @if (showUnit) { <MudTh>Unit</MudTh> }
+                <MudTh>For</MudTh>
+                <MudTh>Amount</MudTh>
+                <MudTh>Method</MudTh>
+                <MudTh>Reference</MudTh>
+                <MudTh>Notes</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@LocalDate(context.PaymentDate)</MudTd>
+                @if (showUnit) { <MudTd>@context.UnitNumber</MudTd> }
+                <MudTd>@ForMonth(context)</MudTd>
+                <MudTd>@FinanceLabels.Money(context.Amount)</MudTd>
+                <MudTd>@FinanceLabels.Method(context.Method)</MudTd>
+                <MudTd>@context.Reference</MudTd>
+                <MudTd>@context.Notes</MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudTd Colspan="7" Class="pa-2">No payments.</MudTd>
+            </NoRecordsContent>
+        </MudTable>
+    };
+
+    private RenderFragment LedgerTab => __builder =>
+    {
+        if (_ledger is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+            return;
+        }
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudText Typo="Typo.h6">Payments received in @FinanceLabels.MonthName(_year, _month)</MudText>
+            <MudText Typo="Typo.body2">Total @FinanceLabels.Money(_ledger.Payments.Sum(p => p.Amount))</MudText>
+        </MudStack>
+        @PaymentTable(_ledger.Payments, showUnit: true)
+        if (_ledger.PaymentsForThisMonthReceivedElsewhere.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-3">Paid in advance or late for @FinanceLabels.MonthName(_year, _month)</MudText>
+            @PaymentTable(_ledger.PaymentsForThisMonthReceivedElsewhere, showUnit: true)
+        }
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-6">
+            <MudText Typo="Typo.h6">Expenses in @FinanceLabels.MonthName(_year, _month)</MudText>
+            <MudText Typo="Typo.body2">Total @FinanceLabels.Money(_ledger.Expenses.Sum(e => e.Amount))</MudText>
+        </MudStack>
+        <MudPaper Class="pa-3 my-2" Outlined="true">
+            <MudGrid>
+                <MudItem xs="6" md="2">
+                    <MudSelect T="ExpenseCategory" @bind-Value="_expCategory" Label="Category">
+                        @foreach (var category in Enum.GetValues<ExpenseCategory>())
+                        {
+                            <MudSelectItem Value="@category">@FinanceLabels.Category(category)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="2"><MudNumericField T="decimal" @bind-Value="_expAmount" Label="Amount (RSD)" Min="0" /></MudItem>
+                <MudItem xs="12" md="4"><MudTextField @bind-Value="_expDescription" Label="Description" MaxLength="500" /></MudItem>
+                <MudItem xs="6" md="2"><MudTextField @bind-Value="_expVendor" Label="Vendor (optional)" MaxLength="200" /></MudItem>
+                <MudItem xs="6" md="2"><MudDatePicker @bind-Date="_expDate" Label="Date" MaxDate="DateTime.Today" DateFormat="yyyy-MM-dd" /></MudItem>
+            </MudGrid>
+            @if (_expError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_expError</MudAlert>
+            }
+            <MudButton Variant="Variant.Outlined" Class="mt-2" Disabled="@_busy" OnClick="SaveExpense">Record expense</MudButton>
+        </MudPaper>
+        <MudTable Items="@_ledger.Expenses" Dense="true" Breakpoint="Breakpoint.Sm" Elevation="0">
+            <HeaderContent>
+                <MudTh>Date</MudTh>
+                <MudTh>Category</MudTh>
+                <MudTh>Description</MudTh>
+                <MudTh>Vendor</MudTh>
+                <MudTh>Amount</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@LocalDate(context.ExpenseDate)</MudTd>
+                <MudTd>@FinanceLabels.Category(context.Category)</MudTd>
+                <MudTd>@context.Description</MudTd>
+                <MudTd>@context.Vendor</MudTd>
+                <MudTd>@FinanceLabels.Money(context.Amount)</MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudTd Colspan="5" Class="pa-2">No expenses.</MudTd>
+            </NoRecordsContent>
+        </MudTable>
+    };
+
+    private RenderFragment FeeSettingsTab => __builder =>
+    {
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudGrid AlignItems="End">
+                <MudItem xs="12" sm="6" md="4">
+                    <MudTextField @bind-Value="_feeName" Label="Fee name" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudNumericField @bind-Value="_amountPerM2" Label="Amount per m² (RSD)" Min="0" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudNumericField @bind-Value="_fixedAmount" Label="Fixed amount (RSD, optional)" Min="0" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveFee" Disabled="@_busy">Save</MudButton>
+                </MudItem>
+            </MudGrid>
+            <MudText Typo="Typo.caption" Class="mt-2">
+                Monthly fee = fixed amount + (amount per m² × unit area). A new fee applies from the current month; earlier months keep the fee that was in force then.
+            </MudText>
+        </MudPaper>
+    };
 }

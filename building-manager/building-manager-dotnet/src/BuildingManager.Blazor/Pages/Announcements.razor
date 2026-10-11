@@ -1,0 +1,338 @@
+@page "/announcements"
+@inject IAnnouncementService AnnouncementService
+@inject IBuildingSelectionService BuildingSelection
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Announcements</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+    <MudText Typo="Typo.h3">Announcements</MudText>
+    @if (_canManage && _buildingId is not null && !_composing)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => _composing = true)">
+            New announcement
+        </MudButton>
+    }
+</MudStack>
+
+@if (_noBuildings)
+{
+    <MudAlert Severity="Severity.Info">
+        No buildings yet. <MudLink Href="/buildings/new">Create a building</MudLink> first.
+    </MudAlert>
+}
+else if (_error is not null && _feed is null)
+{
+    <MudAlert Severity="Severity.Error">@_error</MudAlert>
+}
+else if (_feed is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    @if (_composing)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">New announcement</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="8">
+                    <MudTextField @bind-Value="_title" Label="Title" MaxLength="100" Counter="100" Immediate="true" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="AnnouncementType" @bind-Value="_type" Label="Type">
+                        @foreach (var type in Enum.GetValues<AnnouncementType>())
+                        {
+                            <MudSelectItem Value="@type">@FinanceLabels.Announcement(type).Text</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_content" Label="Message" Lines="5" MaxLength="1000" Counter="1000" Immediate="true" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSwitch T="bool" @bind-Checked="_scheduled" Label="Publish later" Color="Color.Primary" />
+                </MudItem>
+                @if (_scheduled)
+                {
+                    <MudItem xs="7" md="4">
+                        <MudDatePicker @bind-Date="_publishDate" Label="Publish on" MinDate="DateTime.Today" DateFormat="yyyy-MM-dd" />
+                    </MudItem>
+                    <MudItem xs="5" md="4">
+                        <MudTimePicker @bind-Time="_publishTime" Label="At" AmPm="false" />
+                    </MudItem>
+                }
+                <MudItem xs="12" md="4">
+                    <MudDatePicker @bind-Date="_showUntil" Label="Show until (optional)" MinDate="DateTime.Today" DateFormat="yyyy-MM-dd" Clearable="true"
+                                   HelperText="Leaves the feed at the end of this day" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudCheckBox T="bool" @bind-Checked="_pinned" Label="Pin to the top of the feed" />
+                </MudItem>
+            </MudGrid>
+            @if (_type == AnnouncementType.Emergency)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">Emergency announcements are highlighted for all residents.</MudAlert>
+            }
+            @if (_formError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_formError</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="Publish">
+                    @(_scheduled ? "Schedule" : "Publish now")
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => { _composing = false; _formError = null; })">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
+    }
+
+    @if (_canManage)
+    {
+        <MudTabs Elevation="0" ApplyEffectsToContainer="true" PanelClass="pt-4">
+            <MudTabPanel Text="Feed">@Feed</MudTabPanel>
+            <MudTabPanel Text="History">@History</MudTabPanel>
+        </MudTabs>
+    }
+    else
+    {
+        @Feed
+    }
+}
+
+@code {
+    private string? _buildingId;
+    private bool _noBuildings;
+    private bool _canManage;
+    private List<AnnouncementInfo>? _feed;
+    private List<AnnouncementInfo> _history = new();
+    private string? _error;
+    private bool _busy;
+
+    private bool _composing;
+    private string _title = string.Empty;
+    private string _content = string.Empty;
+    private AnnouncementType _type = AnnouncementType.General;
+    private bool _scheduled;
+    private DateTime? _publishDate = DateTime.Today.AddDays(1);
+    private TimeSpan? _publishTime = new TimeSpan(9, 0, 0);
+    private DateTime? _showUntil;
+    private bool _pinned;
+    private string? _formError;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            _canManage = UserRoles.CanManage((await AuthState).User);
+        }
+
+        _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+        if (_buildingId is null)
+        {
+            _noBuildings = true;
+            return;
+        }
+
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        try
+        {
+            _feed = await AnnouncementService.GetFeedAsync(_buildingId!);
+            if (_canManage)
+            {
+                _history = await AnnouncementService.GetHistoryAsync(_buildingId!);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task Publish()
+    {
+        _formError = null;
+        if (string.IsNullOrWhiteSpace(_title) || string.IsNullOrWhiteSpace(_content))
+        {
+            _formError = "Enter a title and a message.";
+            return;
+        }
+
+        DateTime? publishAt = null;
+        if (_scheduled)
+        {
+            if (_publishDate is not { } day || _publishTime is not { } time || day.Date + time <= DateTime.Now)
+            {
+                _formError = "Choose a future date and time to publish.";
+                return;
+            }
+            publishAt = DateTime.SpecifyKind(day.Date + time, DateTimeKind.Local).ToUniversalTime();
+        }
+
+        // "Show until" a day means through the end of that day, local time.
+        DateTime? expiresAt = _showUntil is { } until
+            ? DateTime.SpecifyKind(until.Date.AddDays(1), DateTimeKind.Local).ToUniversalTime()
+            : null;
+
+        _busy = true;
+        try
+        {
+            await AnnouncementService.CreateAsync(_buildingId!, _title.Trim(), _content.Trim(), _type, publishAt, expiresAt, _pinned);
+            Snackbar.Add(_scheduled ? "Announcement scheduled" : "Announcement published", Severity.Success);
+            _composing = false;
+            _title = _content = string.Empty;
+            _type = AnnouncementType.General;
+            _scheduled = _pinned = false;
+            _showUntil = null;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task TogglePin(AnnouncementInfo announcement)
+    {
+        await Act(() => AnnouncementService.SetPinnedAsync(_buildingId!, announcement.Id, !announcement.IsPinned),
+            announcement.IsPinned ? "Unpinned" : "Pinned");
+    }
+
+    private async Task Archive(AnnouncementInfo announcement)
+    {
+        if (await DialogService.ShowMessageBox("Archive announcement",
+                $"Remove \"{announcement.Title}\" from the residents' feed? It stays in the history.",
+                yesText: "Archive", cancelText: "Back") == true)
+        {
+            await Act(() => AnnouncementService.ArchiveAsync(_buildingId!, announcement.Id), "Archived");
+        }
+    }
+
+    private async Task Act(Func<Task> action, string message)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await action();
+            Snackbar.Add(message, Severity.Success);
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string Status(AnnouncementInfo a, out Color color)
+    {
+        var now = DateTime.UtcNow;
+        if (a.ScheduledFor is { } at && at > now) { color = Color.Info; return $"Scheduled for {Local(at)}"; }
+        if (a.ExpiresAt is { } until && until <= now) { color = Color.Default; return "Expired"; }
+        color = Color.Success;
+        return "In the feed";
+    }
+
+    private static string Local(DateTime utc) => utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+
+    private RenderFragment Feed => __builder =>
+    {
+        if (_feed!.Count == 0)
+        {
+            <MudText Typo="Typo.body1" Class="pa-4">No announcements right now.</MudText>
+            return;
+        }
+
+        foreach (var a in _feed)
+        {
+            var (label, color, icon) = FinanceLabels.Announcement(a.Type);
+            var emergency = a.Type == AnnouncementType.Emergency;
+            <MudPaper Class="pa-4 mb-3" Elevation="@(emergency ? 4 : 1)"
+                      Style="@($"border-left: 6px solid var(--mud-palette-{(emergency ? "error" : a.IsPinned ? "primary" : "lines-default")});")">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudIcon Icon="@icon" Color="@color" />
+                        <MudText Typo="Typo.h6">@a.Title</MudText>
+                        @if (a.IsPinned)
+                        {
+                            <MudIcon Icon="@Icons.Material.Filled.PushPin" Size="Size.Small" Color="Color.Primary" Title="Pinned" />
+                        }
+                    </MudStack>
+                    <MudChip Size="Size.Small" Color="@color">@label</MudChip>
+                </MudStack>
+                <MudText Typo="Typo.body1" Class="mt-2" Style="white-space: pre-line;">@a.Content</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-2">
+                    <MudText Typo="Typo.caption">
+                        @Local(a.ScheduledFor ?? a.CreatedAt)@(a.CreatedByName is null ? "" : $" · {a.CreatedByName}")@(a.ExpiresAt is { } until ? $" · until {Local(until)}" : "")
+                    </MudText>
+                    @if (_canManage)
+                    {
+                        <MudStack Row="true" Spacing="1">
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="@_busy" OnClick="@(() => TogglePin(a))">@(a.IsPinned ? "Unpin" : "Pin")</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="@_busy" OnClick="@(() => Archive(a))">Archive</MudButton>
+                        </MudStack>
+                    }
+                </MudStack>
+            </MudPaper>
+        }
+    };
+
+    private RenderFragment History => __builder =>
+    {
+        <MudTable Items="@_history" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+            <HeaderContent>
+                <MudTh>Published</MudTh>
+                <MudTh>Title</MudTh>
+                <MudTh>Type</MudTh>
+                <MudTh>By</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                @{ var status = Status(context, out var statusColor); }
+                <MudTd>@Local(context.ScheduledFor ?? context.CreatedAt)</MudTd>
+                <MudTd>
+                    @context.Title
+                    @if (context.IsPinned)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.PushPin" Size="Size.Small" Color="Color.Primary" Title="Pinned" Style="vertical-align: middle;" />
+                    }
+                </MudTd>
+                <MudTd>@FinanceLabels.Announcement(context.Type).Text</MudTd>
+                <MudTd>@context.CreatedByName</MudTd>
+                <MudTd><MudChip Size="Size.Small" Color="@statusColor">@status</MudChip></MudTd>
+                <MudTd Style="text-align: right;">
+                    @if (status != "Expired")
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="@_busy" OnClick="@(() => Archive(context))">Archive</MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudTd Colspan="6" Class="pa-4" Align="Align.Center">Nothing published yet.</MudTd>
+            </NoRecordsContent>
+        </MudTable>
+        <MudText Typo="Typo.caption" Class="mt-2">Announcements are kept for 12 months (pinned ones longer).</MudText>
+    };
+}

@@ -436,17 +436,25 @@ public class BuildingGrain : Grain, IBuildingGrain
 
     public async Task CreateAnnouncementAsync(AnnouncementInfo announcement)
     {
-        // Prune stale entries so the announcement list cannot grow forever:
-        // drop anything that expired over 30 days ago, or that is over a year
-        // old and not pinned.
+        if (string.IsNullOrWhiteSpace(announcement.Title))
+            throw new ArgumentException("An announcement needs a title.", nameof(announcement));
+        if (string.IsNullOrWhiteSpace(announcement.Content))
+            throw new ArgumentException("An announcement needs a message.", nameof(announcement));
+        if (!Enum.IsDefined(announcement.Type))
+            throw new ArgumentException("Unknown announcement type.", nameof(announcement));
+
         var now = DateTime.UtcNow;
+        // A minute of slack for "publish now" sent with the client's clock.
+        if (announcement.ScheduledFor is { } scheduledFor && scheduledFor < now.AddMinutes(-1))
+            throw new ArgumentException("The scheduled time is in the past.", nameof(announcement));
+        var publishedAt = announcement.ScheduledFor is { } at && at > now ? at : now;
+        if (announcement.ExpiresAt is { } expiresAt && expiresAt <= publishedAt)
+            throw new ArgumentException("The announcement must expire after it is published.", nameof(announcement));
+
+        // Bound the state: drop unpinned announcements over a year old. Expiry
+        // alone does not remove them, so managers keep a year of history.
         var staleKeys = _state.State.Announcements
-            .Where(kv =>
-            {
-                var a = kv.Value;
-                return (a.ExpiresAt is { } expiresAt && expiresAt < now.AddDays(-30))
-                    || (a.CreatedAt < now.AddYears(-1) && !a.IsPinned);
-            })
+            .Where(kv => kv.Value.CreatedAt < now.AddYears(-1) && !kv.Value.IsPinned)
             .Select(kv => kv.Key)
             .ToList();
         foreach (var key in staleKeys)
@@ -457,18 +465,19 @@ public class BuildingGrain : Grain, IBuildingGrain
         var state = new AnnouncementState
         {
             Id = announcement.Id,
-            Title = announcement.Title,
-            Content = announcement.Content,
+            Title = announcement.Title.Trim(),
+            Content = announcement.Content.Trim(),
             Type = announcement.Type,
-            CreatedAt = announcement.CreatedAt == default ? DateTime.UtcNow : announcement.CreatedAt,
+            CreatedAt = announcement.CreatedAt == default ? now : announcement.CreatedAt,
             ScheduledFor = announcement.ScheduledFor,
             CreatedBy = announcement.CreatedBy,
-            IsPinned = false,
+            CreatedByName = announcement.CreatedByName,
+            IsPinned = announcement.IsPinned,
             ExpiresAt = announcement.ExpiresAt
         };
-        
+
         _state.State.Announcements[state.Id] = state;
-        _state.State.UpdatedAt = DateTime.UtcNow;
+        _state.State.UpdatedAt = now;
         await _state.WriteStateAsync();
     }
 
@@ -479,23 +488,65 @@ public class BuildingGrain : Grain, IBuildingGrain
             .Where(a => (a.ExpiresAt == null || a.ExpiresAt > now) &&
                        (a.ScheduledFor == null || a.ScheduledFor <= now))
             .OrderByDescending(a => a.IsPinned)
-            .ThenByDescending(a => a.CreatedAt)
+            .ThenByDescending(a => a.ScheduledFor ?? a.CreatedAt)
             .Take(limit)
-            .Select(a => new AnnouncementInfo
-            {
-                Id = a.Id,
-                Title = a.Title,
-                Content = a.Content,
-                Type = a.Type,
-                CreatedAt = a.CreatedAt,
-                ScheduledFor = a.ScheduledFor,
-                SentAt = a.SentAt,
-                CreatedBy = a.CreatedBy,
-                IsPinned = a.IsPinned,
-                ExpiresAt = a.ExpiresAt
-            }).ToArray();
+            .Select(MapAnnouncement)
+            .ToArray();
         return Task.FromResult<IEnumerable<AnnouncementInfo>>(announcements);
     }
+
+    public Task<IEnumerable<AnnouncementInfo>> GetAnnouncementHistoryAsync()
+    {
+        var announcements = _state.State.Announcements.Values
+            .OrderByDescending(a => a.ScheduledFor ?? a.CreatedAt)
+            .Select(MapAnnouncement)
+            .ToArray();
+        return Task.FromResult<IEnumerable<AnnouncementInfo>>(announcements);
+    }
+
+    public async Task SetAnnouncementPinnedAsync(Guid announcementId, bool pinned)
+    {
+        var announcement = FindAnnouncement(announcementId);
+        if (announcement.IsPinned == pinned)
+            return;
+
+        announcement.IsPinned = pinned;
+        _state.State.UpdatedAt = DateTime.UtcNow;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task ArchiveAnnouncementAsync(Guid announcementId)
+    {
+        var announcement = FindAnnouncement(announcementId);
+        var now = DateTime.UtcNow;
+        if (announcement.ExpiresAt is { } expiresAt && expiresAt <= now)
+            return; // already out of the feed
+
+        announcement.ExpiresAt = now;
+        announcement.IsPinned = false;
+        _state.State.UpdatedAt = now;
+        await _state.WriteStateAsync();
+    }
+
+    private AnnouncementState FindAnnouncement(Guid announcementId) =>
+        _state.State.Announcements.TryGetValue(announcementId, out var announcement)
+            ? announcement
+            : throw new KeyNotFoundException($"Announcement '{announcementId}' not found");
+
+    private static AnnouncementInfo MapAnnouncement(AnnouncementState a) => new()
+    {
+        Id = a.Id,
+        Title = a.Title,
+        Content = a.Content,
+        Type = a.Type,
+        CreatedAt = a.CreatedAt,
+        ScheduledFor = a.ScheduledFor,
+        SentAt = a.SentAt,
+        CreatedBy = a.CreatedBy,
+        CreatedByName = a.CreatedByName,
+        IsPinned = a.IsPinned,
+        ExpiresAt = a.ExpiresAt
+    };
 
     public Task<FinancialSummary> GetFinancialSummaryAsync(DateTime? from = null, DateTime? to = null)
     {
@@ -553,25 +604,97 @@ public class BuildingGrain : Grain, IBuildingGrain
     private decimal CalculateOutstandingReceivables(MonthlyTotals currentMonth)
     {
         var now = DateTime.UtcNow;
-        var activeFee = _state.State.FeeStructures
-            .Where(f => f.IsActive && f.EffectiveFrom <= now)
-            .OrderByDescending(f => f.EffectiveFrom)
-            .FirstOrDefault();
-
-        if (activeFee is null)
-        {
-            return 0;
-        }
+        var fee = FeeInForce(new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc));
 
         decimal outstanding = 0;
         foreach (var unit in _state.State.Units.Values)
         {
-            var expected = (activeFee.FixedAmount ?? 0m) + activeFee.AmountPerM2 * unit.AreaM2;
             currentMonth.PaidAmountsByUnit.TryGetValue(unit.Number, out var paid);
-            outstanding += Math.Max(0, expected - paid);
+            outstanding += Math.Max(0, ExpectedFee(unit, fee) - paid);
         }
 
         return outstanding;
+    }
+
+    /// <summary>
+    /// The fee structure in force by the end of the month, so a fee first set
+    /// mid-month already applies to that month. Older structures stay in the
+    /// list (inactive) and still govern the months before a change.
+    /// </summary>
+    private FeeStructureState? FeeInForce(DateTime monthStart)
+    {
+        var monthEnd = monthStart.AddMonths(1);
+        return _state.State.FeeStructures
+            .Where(f => f.EffectiveFrom < monthEnd)
+            .OrderByDescending(f => f.EffectiveFrom)
+            .FirstOrDefault();
+    }
+
+    private static decimal ExpectedFee(UnitState unit, FeeStructureState? fee) =>
+        fee is null ? 0m : (fee.FixedAmount ?? 0m) + fee.AmountPerM2 * unit.AreaM2;
+
+    private static DateTime MonthStart(int year, int month)
+    {
+        if (month is < 1 or > 12 || year is < 2000 or > 2200)
+            throw new ArgumentException($"'{year}-{month}' is not a valid month.", nameof(month));
+        return new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
+    }
+
+    public async Task<MonthPaymentStatus> GetPaymentStatusAsync(int year, int month)
+    {
+        var period = MonthStart(year, month);
+        var previous = period.AddMonths(-1);
+        var paidThisMonth = (await GetFinanceGrain(period).GetMonthlyTotalsAsync()).PaidAmountsByUnit;
+        var paidLastMonth = (await GetFinanceGrain(previous).GetMonthlyTotalsAsync()).PaidAmountsByUnit;
+        var fee = FeeInForce(period);
+        var previousFee = FeeInForce(previous);
+
+        var units = _state.State.Units.Values
+            .OrderBy(u => u.Number.Length).ThenBy(u => u.Number)
+            .Select(unit =>
+            {
+                var expected = ExpectedFee(unit, fee);
+                paidThisMonth.TryGetValue(unit.Number, out var paid);
+                paidLastMonth.TryGetValue(unit.Number, out var paidBefore);
+
+                var standing = expected <= 0 ? PaymentStanding.NoFee
+                    : paid >= expected ? PaymentStanding.Paid
+                    : paidBefore >= ExpectedFee(unit, previousFee) ? PaymentStanding.OneMonthBehind
+                    : PaymentStanding.TwoOrMoreMonthsBehind;
+
+                return new UnitPaymentStatus
+                {
+                    UnitNumber = unit.Number,
+                    AreaM2 = unit.AreaM2,
+                    Expected = expected,
+                    Paid = paid,
+                    Standing = standing
+                };
+            })
+            .ToList();
+
+        return new MonthPaymentStatus { Year = year, Month = month, FeeName = fee?.Name, Units = units };
+    }
+
+    public Task<MonthLedger> GetFinanceLedgerAsync(int year, int month) =>
+        GetFinanceGrain(MonthStart(year, month)).GetLedgerAsync();
+
+    public async Task<List<PaymentInfo>> GetUnitPaymentHistoryAsync(string unitNumber, int months = 12)
+    {
+        months = Math.Clamp(months, 1, 60);
+        var now = DateTime.UtcNow;
+        var month = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Payments live in the month they were received, which is never in
+        // the future, so walking back from this month finds all of them.
+        var payments = new List<PaymentInfo>();
+        for (var i = 0; i < months; i++, month = month.AddMonths(-1))
+        {
+            var ledger = await GetFinanceGrain(month).GetLedgerAsync();
+            payments.AddRange(ledger.Payments.Where(p => p.UnitNumber == unitNumber));
+        }
+
+        return payments.OrderByDescending(p => p.PaymentDate).ToList();
     }
 
     public async Task RecordPaymentAsync(PaymentInfo payment)
