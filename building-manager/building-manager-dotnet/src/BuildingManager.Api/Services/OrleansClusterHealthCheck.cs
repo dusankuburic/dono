@@ -1,0 +1,43 @@
+using BuildingManager.Orleans.Interfaces;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Orleans;
+
+namespace BuildingManager.Api.Services;
+
+/// <summary>
+/// Healthy when the API can reach the Orleans cluster and a grain answers.
+/// This is the API's only dependency: it owns no database itself.
+/// </summary>
+public class OrleansClusterHealthCheck : IHealthCheck
+{
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(3);
+
+    private readonly IGrainFactory _grainFactory;
+
+    public OrleansClusterHealthCheck(IGrainFactory grainFactory)
+    {
+        _grainFactory = grainFactory;
+    }
+
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(Timeout);
+
+            // A cheap read-only call through the real serialization pipeline.
+            await _grainFactory.GetGrain<IBuildingRegistryGrain>("global").GetAllAsync();
+            return HealthCheckResult.Healthy("Orleans cluster reachable");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return HealthCheckResult.Unhealthy("Orleans cluster did not answer within 3 seconds");
+        }
+        catch (Exception ex)
+        {
+            return HealthCheckResult.Unhealthy("Orleans cluster unreachable", ex);
+        }
+    }
+}

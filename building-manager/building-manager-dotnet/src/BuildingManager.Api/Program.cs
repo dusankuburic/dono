@@ -18,6 +18,17 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Azure Key Vault for production secrets (Jwt--Secret, Auth--AdminPassword,
+// ConnectionStrings--..., Email/Sms ...). The managed identity of the host
+// authenticates; locally this stays unset and user-secrets/env vars apply.
+var keyVaultUri = builder.Configuration["KeyVault:VaultUri"];
+if (!string.IsNullOrWhiteSpace(keyVaultUri))
+{
+    builder.Configuration.AddAzureKeyVault(
+        new Uri(keyVaultUri),
+        new Azure.Identity.DefaultAzureCredential());
+}
+
 // Console sink comes from appsettings.json (Serilog:WriteTo) — do not add a
 // second one here or every line is logged twice.
 Log.Logger = new LoggerConfiguration()
@@ -60,7 +71,8 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddCheck<OrleansClusterHealthCheck>("orleans-cluster");
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 
@@ -234,8 +246,23 @@ builder.Host.UseOrleansClient(client =>
         options.ServiceId = serviceId;
     });
 
-    var gatewayPort = builder.Configuration.GetValue<int>("Orleans:GatewayPort", 30000);
-    client.UseStaticClustering(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, gatewayPort));
+    // Against a real deployment the gateways come from the same clustering
+    // table the silo writes to; the static loopback gateway is only a
+    // fallback for a single-silo local run without a database.
+    var orleansConnectionString = builder.Configuration.GetConnectionString("OrleansStorage");
+    if (!string.IsNullOrWhiteSpace(orleansConnectionString))
+    {
+        client.UseAdoNetClustering(options =>
+        {
+            options.ConnectionString = orleansConnectionString;
+            options.Invariant = "Npgsql";
+        });
+    }
+    else
+    {
+        var gatewayPort = builder.Configuration.GetValue<int>("Orleans:GatewayPort", 30000);
+        client.UseStaticClustering(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, gatewayPort));
+    }
 });
 
 var app = builder.Build();

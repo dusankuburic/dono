@@ -19,7 +19,7 @@ Mobile-first digital platform for building managers.
 ```
 src/
 ├── BuildingManager.Core/              # Domain layer
-├── BuildingManager.Infrastructure/    # Data access, external services
+├── BuildingManager.Infrastructure/    # External services (blob storage)
 ├── BuildingManager.Orleans.Interfaces/# Grain interfaces
 ├── BuildingManager.Orleans.Grains/    # Grain implementations
 ├── BuildingManager.Orleans.Silo/      # Orleans host
@@ -42,18 +42,27 @@ dotnet restore
 # The init script creates the building_manager and building_manager_orleans databases.
 docker-compose up -d
 
-# Create and apply EF Core migrations
-dotnet ef migrations add Initial --project src/BuildingManager.Infrastructure
-dotnet ef database update --project src/BuildingManager.Infrastructure
+# Secrets are not in appsettings. Give the API a JWT secret (>= 32 chars)
+# and, for the seeded admin account, credentials — via user secrets:
+dotnet user-secrets init --project src/BuildingManager.Api
+dotnet user-secrets set "Jwt:Secret" "dev-only-secret-at-least-32-characters!" --project src/BuildingManager.Api
+dotnet user-secrets set "Auth:AdminEmail" "admin@example.com" --project src/BuildingManager.Api
+dotnet user-secrets set "Auth:AdminPassword" "a-strong-password" --project src/BuildingManager.Api
+# ... or environment variables: Jwt__Secret / Auth__AdminEmail / Auth__AdminPassword.
 
-# Orleans clustering/persistence tables must exist before the silo starts.
-# Apply the Orleans PostgreSQL scripts to the building_manager_orleans database:
-# https://learn.microsoft.com/en-us/dotnet/orleans/host/configuration-guide/adonet-configuration
+# Orleans clustering/persistence/reminders tables must exist before the silo
+# starts. Apply the PostgreSQL scripts to the building_manager_orleans database
+# IN THIS ORDER (all from github.com/dotnet/orleans, use the main-branch copy —
+# the version-tagged copies lag behind the runtime):
+#   1. src/AdoNet/Shared/PostgreSQL-Main.sql            (creates OrleansQuery)
+#   2. src/AdoNet/Orleans.Clustering.AdoNet/PostgreSQL-Clustering.sql
+#   3. src/AdoNet/Orleans.Persistence.AdoNet/PostgreSQL-Persistence.sql
+#   4. src/AdoNet/Orleans.Reminders.AdoNet/PostgreSQL-Reminders.sql
 
-# Run silo (dashboard on http://localhost:8081)
+# Run silo (dashboard on http://localhost:8081, health on http://localhost:8080/health)
 dotnet run --project src/BuildingManager.Orleans.Silo
 
-# Run API
+# Run API (health on http://localhost:5000/health: checks the Orleans cluster)
 dotnet run --project src/BuildingManager.Api
 
 # Run Blazor WebAssembly client (needs a static file server, e.g. VS/V Code
@@ -87,7 +96,15 @@ curl -H "Authorization: Bearer <token>" http://localhost:5000/api/buildings
 
 Logging out (`POST /api/auth/logout`) terminates the session grain so the token
 stops working immediately, before its expiry. Passwords are stored as PBKDF2
-hashes. Set `Jwt:Secret` (≥ 32 chars) in configuration before production use.
+hashes. `Jwt:Secret` (≥ 32 chars) is required configuration — the API refuses
+to start without it. It is not in appsettings (nor are the admin seeding
+credentials); set it via user secrets or environment variables locally. In
+production, set `KeyVault:VaultUri` and the API loads every secret from Azure
+Key Vault with the host's managed identity (secret names use `--` separators,
+e.g. `Jwt--Secret`, `Auth--AdminPassword`, `ConnectionStrings--OrleansStorage`).
+The API reaches the Orleans cluster through the same clustering table the silo
+writes to (ADO.NET gateway discovery via `ConnectionStrings:OrleansStorage`;
+it falls back to a static loopback gateway only when no connection string is set).
 
 ### Sessions, refresh and password reset
 

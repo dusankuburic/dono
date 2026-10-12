@@ -21,13 +21,16 @@ builder.Host.UseSerilog();
 var siloPort = builder.Configuration.GetValue<int>("Orleans:SiloPort", 11111);
 var gatewayPort = builder.Configuration.GetValue<int>("Orleans:GatewayPort", 30000);
 var dashboardPort = builder.Configuration.GetValue<int>("Orleans:DashboardPort", 8081);
+var httpPort = builder.Configuration.GetValue<int>("Orleans:HttpPort", 8080);
 
 // Kestrel hosts the silo and gateway sockets (Orleans co-hosting pattern).
-// The dashboard hosts itself on its own port, so it must not be bound here.
+// The dashboard hosts itself on its own port, and httpPort is the host's own
+// HTTP endpoint (health checks) — the Orleans sockets speak their own protocol.
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.ListenAnyIP(siloPort);
     options.ListenAnyIP(gatewayPort);
+    options.ListenAnyIP(httpPort);
 });
 
 var connectionString = builder.Configuration.GetConnectionString("OrleansStorage")
@@ -78,6 +81,11 @@ builder.Host.UseOrleans(silo =>
             options.HostSelf = true;
             options.Port = dashboardPort;
         });
+
+    // The storage database is the silo's one real dependency: without it,
+    // clustering, grain state and reminders all stop working.
+    silo.Services.AddHealthChecks()
+        .AddNpgSql(connectionString, name: "orleans-storage", tags: new[] { "ready" });
 });
 
 var app = builder.Build();
@@ -85,5 +93,7 @@ var app = builder.Build();
 Log.Information("Starting Orleans Silo for Building Manager...");
 Log.Information("Cluster: {ClusterId}, Service: {ServiceId}", clusterId, serviceId);
 Log.Information("Dashboard available at port {Port}", dashboardPort);
+
+app.MapHealthChecks("/health");
 
 app.Run();

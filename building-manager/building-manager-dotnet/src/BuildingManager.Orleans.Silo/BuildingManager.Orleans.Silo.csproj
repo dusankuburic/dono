@@ -20,6 +20,7 @@
     <PackageReference Include="Microsoft.Orleans.Persistence.AdoNet" />
     <PackageReference Include="Microsoft.Orleans.Reminders" />
     <PackageReference Include="Microsoft.Orleans.Reminders.AdoNet" />
+    <PackageReference Include="AspNetCore.HealthChecks.Npgsql" />
     <PackageReference Include="OrleansDashboard" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Serilog.AspNetCore" />
