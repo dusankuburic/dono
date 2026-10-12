@@ -42,5 +42,6 @@ builder.Services.AddScoped<IBuildingSelectionService, BuildingSelectionService>(
 builder.Services.AddScoped<IAssemblyService, AssemblyService>();
 builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
 builder.Services.AddScoped<IFinanceService, FinanceService>();
+builder.Services.AddScoped<IDocumentService, DocumentService>();
 
 await builder.Build().RunAsync();

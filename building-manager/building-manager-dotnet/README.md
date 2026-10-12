@@ -166,6 +166,20 @@ and expired items. Unpinned announcements are pruned after 12 months. The
 author is taken from the signed-in account. Delivery by SMS/email/push and
 recipient selection are not implemented yet.
 
+### Documents
+
+`/api/buildings/{id}/documents` (Blazor: **Documents**). Managers upload
+PDFs and images (PDF, PNG, JPG, WebP, GIF, HEIC; 25 MB per file, 1 GB per
+building) into folders — registration, assembly minutes, financial reports,
+contracts, permits, insurance, other — marked "managers only" or "all
+owners". Owners with building access see and download only the shared ones
+(`GET .../{documentId}/content` streams the file; the API filters the list
+and checks access per document). The uploader is the signed-in account.
+Content lives in Azure Blob Storage (`Storage:BlobConnectionString` /
+`Storage:ContainerName` in appsettings; run Azurite locally with
+`docker compose up -d`). Full-text search and shareable public links are
+not implemented yet.
+
 ### Fees, payments and expenses
 
 `/api/buildings/{id}/finance/...` (Blazor: **Finance**).

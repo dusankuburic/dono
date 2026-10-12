@@ -44,7 +44,21 @@ public interface IBuildingGrain : IGrainWithStringKey
 
     /// <summary>Takes an announcement out of the feed by expiring it now; it stays in the history.</summary>
     Task ArchiveAnnouncementAsync(Guid announcementId);
-    
+
+    /// <summary>All document records, newest first. The caller filters by access level.</summary>
+    Task<IEnumerable<DocumentInfo>> GetDocumentsAsync();
+
+    Task<DocumentInfo> GetDocumentAsync(Guid documentId);
+
+    /// <summary>
+    /// Stores a document's record. Throws ArgumentException for invalid input
+    /// and InvalidOperationException when the building's quota is full.
+    /// </summary>
+    Task AddDocumentAsync(DocumentInfo document);
+
+    /// <summary>Deletes the document's record and returns it; the caller removes the blob content.</summary>
+    Task<DocumentInfo> RemoveDocumentAsync(Guid documentId);
+
     Task<FinancialSummary> GetFinancialSummaryAsync(DateTime? from = null, DateTime? to = null);
     Task RecordPaymentAsync(PaymentInfo payment);
     Task RecordExpenseAsync(ExpenseInfo expense);
@@ -200,6 +214,31 @@ public record AnnouncementInfo
     [Id(8)] public bool IsPinned { get; init; }
     [Id(9)] public DateTime? ExpiresAt { get; init; }
     [Id(10)] public string? CreatedByName { get; init; }
+}
+
+/// <summary>One document may be at most this big; a building may keep this much in total (NFR: 1 GB).</summary>
+public static class BuildingDocumentLimits
+{
+    public const long MaxDocumentSizeBytes = 25L * 1024 * 1024;
+    public const long BuildingQuotaBytes = 1024L * 1024 * 1024;
+}
+
+/// <summary>A building document's record; the file content lives in blob storage.</summary>
+[GenerateSerializer]
+public record DocumentInfo
+{
+    [Id(0)] public Guid Id { get; init; }
+    [Id(1)][MaxLength(200)]
+    public string FileName { get; init; } = string.Empty;
+    [Id(2)] public string ContentType { get; init; } = string.Empty;
+    [Id(3)] public long SizeBytes { get; init; }
+    [Id(4)] public DocumentFolder Folder { get; init; }
+    [Id(5)] public DocumentAccessLevel AccessLevel { get; init; }
+    [Id(6)][MaxLength(500)]
+    public string? Description { get; init; }
+    [Id(7)] public Guid UploadedBy { get; init; }
+    [Id(8)] public string? UploadedByName { get; init; }
+    [Id(9)] public DateTime UploadedAt { get; init; }
 }
 
 [GenerateSerializer]

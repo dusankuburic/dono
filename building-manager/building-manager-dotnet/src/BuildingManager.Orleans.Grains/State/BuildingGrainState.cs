@@ -95,6 +95,22 @@ public class AnnouncementState
     [Id(10)] public string? CreatedByName { get; set; }
 }
 
+/// <summary>A document's metadata; the bytes live in blob storage (see IBuildingDocumentStorage).</summary>
+[GenerateSerializer]
+public class DocumentState
+{
+    [Id(0)] public Guid Id { get; set; }
+    [Id(1)] public string FileName { get; set; } = string.Empty;
+    [Id(2)] public string ContentType { get; set; } = string.Empty;
+    [Id(3)] public long SizeBytes { get; set; }
+    [Id(4)] public DocumentFolder Folder { get; set; } = DocumentFolder.Other;
+    [Id(5)] public DocumentAccessLevel AccessLevel { get; set; } = DocumentAccessLevel.ManagersOnly;
+    [Id(6)] public string? Description { get; set; }
+    [Id(7)] public Guid UploadedBy { get; set; }
+    [Id(8)] public string? UploadedByName { get; set; }
+    [Id(9)] public DateTime UploadedAt { get; set; }
+}
+
 /// <summary>Legacy (pre finance-grain) payment record; only read for migration.</summary>
 [GenerateSerializer]
 public class PaymentState

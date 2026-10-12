@@ -194,3 +194,20 @@ public enum BuildingStatus
     Inactive = 2,
     UnderConstruction = 3
 }
+
+public enum DocumentFolder
+{
+    Registration = 1,
+    AssemblyMinutes = 2,
+    FinancialReports = 3,
+    Contracts = 4,
+    Permits = 5,
+    Insurance = 6,
+    Other = 7
+}
+
+public enum DocumentAccessLevel
+{
+    ManagersOnly = 1,
+    AllOwners = 2
+}

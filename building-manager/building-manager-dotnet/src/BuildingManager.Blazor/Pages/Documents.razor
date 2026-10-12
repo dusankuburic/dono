@@ -1,0 +1,284 @@
+@page "/documents"
+@inject IDocumentService DocumentService
+@inject IBuildingSelectionService BuildingSelection
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>Documents</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+    <MudText Typo="Typo.h3">Documents</MudText>
+    @if (_canManage && _buildingId is not null)
+    {
+        <MudText Typo="Typo.caption">@DocumentLabels.Size(_documents?.Sum(d => d.SizeBytes) ?? 0) of 1 GB used</MudText>
+    }
+</MudStack>
+
+@if (_noBuildings)
+{
+    <MudAlert Severity="Severity.Info">
+        No buildings yet. <MudLink Href="/buildings/new">Create a building</MudLink> first.
+    </MudAlert>
+}
+else if (_error is not null && _documents is null)
+{
+    <MudAlert Severity="Severity.Error">@_error</MudAlert>
+}
+else if (_documents is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    @if (_canManage)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Upload a document</MudText>
+            <MudGrid AlignItems="Center">
+                <MudItem xs="12" md="4">
+                    <MudFileUpload T="IBrowserFile" Class="d-block" @bind-Value="_file"
+                                   Accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.heic">
+                        <ButtonTemplate>
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AttachFile" FullWidth="true">
+                                @(_file is null ? "Choose a file (PDF or image)" : _file.Name)
+                            </MudButton>
+                        </ButtonTemplate>
+                    </MudFileUpload>
+                </MudItem>
+                <MudItem xs="12" sm="4" md="3">
+                    <MudSelect T="DocumentFolder" @bind-Value="_folder" Label="Folder">
+                        @foreach (var folder in Enum.GetValues<DocumentFolder>())
+                        {
+                            <MudSelectItem Value="@folder">@DocumentLabels.Folder(folder).Text</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4" md="3">
+                    <MudSelect T="DocumentAccessLevel" @bind-Value="_access" Label="Visible to">
+                        @foreach (var access in Enum.GetValues<DocumentAccessLevel>())
+                        {
+                            <MudSelectItem Value="@access">@DocumentLabels.Access(access)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="@_busy" OnClick="Upload">
+                        Upload
+                    </MudButton>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_description" Label="Description (optional)" MaxLength="500" Immediate="true" />
+                </MudItem>
+            </MudGrid>
+            @if (_formError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_formError</MudAlert>
+            }
+            <MudText Typo="Typo.caption" Class="mt-2">PDF or image, up to 25 MB per file and 1 GB per building.</MudText>
+        </MudPaper>
+    }
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
+    }
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="4" Class="mb-2">
+        <MudSelect T="DocumentFolder?" @bind-Value="_filter" Label="Folder" Clearable="true" Style="max-width: 240px;"
+                   Placeholder="All folders">
+            @foreach (var folder in Enum.GetValues<DocumentFolder>())
+            {
+                var value = (DocumentFolder?)folder;
+                <MudSelectItem Value="@value">@DocumentLabels.Folder(folder).Text</MudSelectItem>
+            }
+        </MudSelect>
+        <MudText Typo="Typo.body2">@FilteredDocuments.Count documents</MudText>
+    </MudStack>
+
+    <MudTable Items="@FilteredDocuments" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@_busy">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Folder</MudTh>
+            @if (_canManage)
+            {
+                <MudTh>Visible to</MudTh>
+            }
+            <MudTh>Size</MudTh>
+            <MudTh>Uploaded</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            @{ var (folderText, folderIcon) = DocumentLabels.Folder(context.Folder); }
+            <MudTd DataLabel="Name">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudIcon Icon="@folderIcon" Size="Size.Small" Color="Color.Secondary" />
+                    <MudStack Spacing="0">
+                        <MudLink OnClick="@(() => Download(context))">@context.FileName</MudLink>
+                        @if (!string.IsNullOrWhiteSpace(context.Description))
+                        {
+                            <MudText Typo="Typo.caption">@context.Description</MudText>
+                        }
+                    </MudStack>
+                </MudStack>
+            </MudTd>
+            <MudTd DataLabel="Folder">@folderText</MudTd>
+            @if (_canManage)
+            {
+                <MudTd DataLabel="Visible to">@DocumentLabels.Access(context.AccessLevel)</MudTd>
+            }
+            <MudTd DataLabel="Size">@DocumentLabels.Size(context.SizeBytes)</MudTd>
+            <MudTd DataLabel="Uploaded">
+                @LocalDate(context.UploadedAt)@(context.UploadedByName is null ? "" : $" · {context.UploadedByName}")
+            </MudTd>
+            <MudTd Style="text-align: right;">
+                <MudIconButton Icon="@Icons.Material.Filled.Download" Title="Download" Size="Size.Small" Disabled="@_busy"
+                               OnClick="@(() => Download(context))" />
+                @if (_canManage)
+                {
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Title="Delete" Size="Size.Small" Color="Color.Error" Disabled="@_busy"
+                                   OnClick="@(() => Delete(context))" />
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudTd Colspan="@(_canManage ? 6 : 5)" Class="pa-4" Align="Align.Center">
+                No documents@( _filter is null ? "" : " in this folder") yet.
+            </MudTd>
+        </NoRecordsContent>
+    </MudTable>
+
+    @if (!_canManage)
+    {
+        <MudText Typo="Typo.caption" Class="mt-2">Only documents shared with all owners are shown.</MudText>
+    }
+}
+
+@code {
+    private string? _buildingId;
+    private bool _noBuildings;
+    private bool _canManage;
+    private List<DocumentInfo>? _documents;
+    private string? _error;
+    private bool _busy;
+
+    private DocumentFolder? _filter;
+
+    private IBrowserFile? _file;
+    private DocumentFolder _folder = DocumentFolder.Other;
+    private DocumentAccessLevel _access = DocumentAccessLevel.ManagersOnly;
+    private string? _description;
+    private string? _formError;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<DocumentInfo> FilteredDocuments =>
+        _documents is null ? new() : _filter is { } folder
+            ? _documents.Where(d => d.Folder == folder).ToList()
+            : _documents;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            _canManage = UserRoles.CanManage((await AuthState).User);
+        }
+
+        _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+        if (_buildingId is null)
+        {
+            _noBuildings = true;
+            return;
+        }
+
+        await Reload();
+    }
+
+    private static string LocalDate(DateTime utc) => utc.ToLocalTime().ToString("yyyy-MM-dd");
+
+    private async Task Reload()
+    {
+        try
+        {
+            _documents = await DocumentService.GetDocumentsAsync(_buildingId!);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task Upload()
+    {
+        _formError = null;
+        if (_file is null)
+        {
+            _formError = "Choose a file to upload.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await DocumentService.UploadAsync(_buildingId!, _file, _folder, _access, _description);
+            Snackbar.Add($"Uploaded {_file.Name}", Severity.Success);
+            _file = null;
+            _description = null;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Download(DocumentInfo document)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var file = await DocumentService.DownloadAsync(_buildingId!, document.Id);
+            await JS.InvokeVoidAsync("saveFile", file.FileName, file.ContentType,
+                Convert.ToBase64String(file.Content));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Delete(DocumentInfo document)
+    {
+        if (await DialogService.ShowMessageBox("Delete document",
+                $"Delete \"{document.FileName}\"? This cannot be undone.",
+                yesText: "Delete", cancelText: "Back") == true)
+        {
+            _busy = true;
+            _error = null;
+            try
+            {
+                await DocumentService.DeleteAsync(_buildingId!, document.Id);
+                Snackbar.Add("Document deleted", Severity.Success);
+                await Reload();
+            }
+            catch (Exception ex)
+            {
+                _error = ex.Message;
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+    }
+}

@@ -533,6 +533,83 @@ public class BuildingGrain : Grain, IBuildingGrain
             ? announcement
             : throw new KeyNotFoundException($"Announcement '{announcementId}' not found");
 
+    public Task<IEnumerable<DocumentInfo>> GetDocumentsAsync()
+    {
+        var documents = _state.State.Documents.Values
+            .OrderByDescending(d => d.UploadedAt)
+            .Select(MapDocument)
+            .ToArray();
+        return Task.FromResult<IEnumerable<DocumentInfo>>(documents);
+    }
+
+    public Task<DocumentInfo> GetDocumentAsync(Guid documentId) =>
+        Task.FromResult(MapDocument(FindDocument(documentId)));
+
+    public async Task AddDocumentAsync(DocumentInfo document)
+    {
+        if (string.IsNullOrWhiteSpace(document.FileName))
+            throw new ArgumentException("The document needs a file name.", nameof(document));
+        if (document.FileName.Trim().Length > 200)
+            throw new ArgumentException("The file name is too long (200 characters at most).", nameof(document));
+        if (string.IsNullOrWhiteSpace(document.ContentType))
+            throw new ArgumentException("The document needs a content type.", nameof(document));
+        if (!Enum.IsDefined(document.Folder) || !Enum.IsDefined(document.AccessLevel))
+            throw new ArgumentException("Unknown document folder or access level.", nameof(document));
+        if (document.SizeBytes <= 0)
+            throw new ArgumentException("The document is empty.", nameof(document));
+        if (document.SizeBytes > BuildingDocumentLimits.MaxDocumentSizeBytes)
+            throw new ArgumentException($"A document may be at most {BuildingDocumentLimits.MaxDocumentSizeBytes / (1024 * 1024)} MB.", nameof(document));
+
+        var used = _state.State.Documents.Values.Sum(d => d.SizeBytes);
+        if (used + document.SizeBytes > BuildingDocumentLimits.BuildingQuotaBytes)
+            throw new InvalidOperationException(
+                $"The building's document storage is full ({BuildingDocumentLimits.BuildingQuotaBytes / (1024L * 1024 * 1024)} GB); delete some documents first.");
+
+        _state.State.Documents[document.Id] = new DocumentState
+        {
+            Id = document.Id,
+            FileName = document.FileName.Trim(),
+            ContentType = document.ContentType.Trim(),
+            SizeBytes = document.SizeBytes,
+            Folder = document.Folder,
+            AccessLevel = document.AccessLevel,
+            Description = string.IsNullOrWhiteSpace(document.Description) ? null : document.Description.Trim(),
+            UploadedBy = document.UploadedBy,
+            UploadedByName = document.UploadedByName,
+            UploadedAt = document.UploadedAt == default ? DateTime.UtcNow : document.UploadedAt
+        };
+        _state.State.UpdatedAt = DateTime.UtcNow;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task<DocumentInfo> RemoveDocumentAsync(Guid documentId)
+    {
+        var document = FindDocument(documentId);
+        _state.State.Documents.Remove(documentId);
+        _state.State.UpdatedAt = DateTime.UtcNow;
+        await _state.WriteStateAsync();
+        return MapDocument(document);
+    }
+
+    private DocumentState FindDocument(Guid documentId) =>
+        _state.State.Documents.TryGetValue(documentId, out var document)
+            ? document
+            : throw new KeyNotFoundException($"Document '{documentId}' not found");
+
+    private static DocumentInfo MapDocument(DocumentState d) => new()
+    {
+        Id = d.Id,
+        FileName = d.FileName,
+        ContentType = d.ContentType,
+        SizeBytes = d.SizeBytes,
+        Folder = d.Folder,
+        AccessLevel = d.AccessLevel,
+        Description = d.Description,
+        UploadedBy = d.UploadedBy,
+        UploadedByName = d.UploadedByName,
+        UploadedAt = d.UploadedAt
+    };
+
     private static AnnouncementInfo MapAnnouncement(AnnouncementState a) => new()
     {
         Id = a.Id,
@@ -827,4 +904,6 @@ public class BuildingAggregateState
     [Id(18)] public Dictionary<Guid, PaymentState> Payments { get; set; } = new();
     [Id(19)] public Dictionary<Guid, ExpenseState> Expenses { get; set; } = new();
     [Id(20)] public List<FeeStructureState> FeeStructures { get; set; } = new();
+    // Document metadata only; the file bytes live in blob storage.
+    [Id(21)] public Dictionary<Guid, DocumentState> Documents { get; set; } = new();
 }

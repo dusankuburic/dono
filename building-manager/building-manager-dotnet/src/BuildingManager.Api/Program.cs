@@ -4,6 +4,7 @@ using BuildingManager.Api.Authorization;
 using BuildingManager.Api.Controllers;
 using BuildingManager.Api.Middleware;
 using BuildingManager.Api.Services;
+using BuildingManager.Infrastructure.Storage;
 using BuildingManager.Orleans.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -160,6 +161,15 @@ builder.Services.AddProblemDetails();
 
 builder.Services.AddSingleton<IEmailSender, DevLoggingEmailSender>();
 builder.Services.AddHostedService<AdminSeeder>();
+
+// Document content lives in blob storage (Azurite locally, Azure Blob in production).
+builder.Services.AddSingleton<IBuildingDocumentStorage>(_ =>
+{
+    var connectionString = builder.Configuration["Storage:BlobConnectionString"]
+        ?? throw new InvalidOperationException("Storage:BlobConnectionString is not configured.");
+    var containerName = builder.Configuration["Storage:ContainerName"] ?? "building-documents";
+    return new AzureBlobDocumentStorage(connectionString, containerName);
+});
 
 // Brute-force protection for auth endpoints: fixed window per client IP.
 var authRateLimit = builder.Configuration.GetValue("RateLimit:AuthRequestsPerMinute", 10);
