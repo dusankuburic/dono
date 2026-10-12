@@ -1,10 +1,24 @@
 @page "/keys"
 @inject IBuildingService BuildingService
 @inject IBuildingSelectionService BuildingSelection
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
 
 <PageTitle>Keys</PageTitle>
 
-<MudText Typo="Typo.h3" Class="mb-4">Keys</MudText>
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+    <MudText Typo="Typo.h3">Keys</MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudText Typo="Typo.caption">@_overdue.Count overdue</MudText>
+        @if (_canManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       Disabled="@_busy" OnClick="@(() => { _addingKey = true; _newIdentifier = null; _newDescription = null; })">
+                Add key
+            </MudButton>
+        }
+    </MudStack>
+</MudStack>
 
 @if (_noBuildings)
 {
@@ -18,50 +32,210 @@ else if (_loadError is not null)
 }
 else
 {
+    @if (_canManage && _addingKey)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Register a key</MudText>
+            <MudGrid AlignItems="Center">
+                <MudItem xs="12" sm="4" md="3">
+                    <MudSelect T="KeyType" @bind-Value="_newKeyType" Label="Type">
+                        @foreach (var type in Enum.GetValues<KeyType>())
+                        {
+                            <MudSelectItem Value="@type">@BuildingLabels.KeyTypeLabel(type)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4" md="3">
+                    <MudTextField @bind-Value="_newIdentifier" Label="Identifier (optional)"
+                                  HelperText="Left empty, one is generated" MaxLength="50" Immediate="true" />
+                </MudItem>
+                <MudItem xs="12" sm="4" md="4">
+                    <MudTextField @bind-Value="_newDescription" Label="Description (optional)" MaxLength="200" Immediate="true" />
+                </MudItem>
+                <MudItem xs="12" md="2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="@_busy" OnClick="AddKey">
+                        Save
+                    </MudButton>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+    }
+
+    @if (_canManage && _checkoutKey is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="4">
+            <MudText Typo="Typo.h6" Class="mb-2">Check out "@_checkoutKey.Identifier"</MudText>
+            <MudGrid>
+                <MudItem xs="12" sm="6" md="4">
+                    <MudTextField @bind-Value="_recipientName" Label="Received by" MaxLength="200" Immediate="true" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="4">
+                    <MudSelect T="RecipientType" @bind-Value="_recipientType" Label="Recipient is a">
+                        @foreach (var type in Enum.GetValues<RecipientType>())
+                        {
+                            <MudSelectItem Value="@type">@BuildingLabels.RecipientTypeLabel(type)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="4">
+                    <MudDatePicker @bind-Date="_expectedReturn" Label="Expected return" MinDate="DateTime.Today" DateFormat="yyyy-MM-dd" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_purpose" Label="Purpose" MaxLength="500" Immediate="true" />
+                </MudItem>
+            </MudGrid>
+            @if (_formError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_formError</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="Checkout">Check out</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => _checkoutKey = null)">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (_canManage && _checkinKey is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="4">
+            <MudText Typo="Typo.h6" Class="mb-2">
+                Return "@_checkinKey.Identifier"
+                @if (_checkinKey.CurrentCheckout is { } checkout)
+                {
+                    <MudText Typo="Typo.body2" Style="display: inline;">from @checkout.RecipientName</MudText>
+                }
+            </MudText>
+            <MudGrid>
+                <MudItem xs="12" sm="6" md="4">
+                    <MudSelect T="string" @bind-Value="_condition" Label="Condition">
+                        <MudSelectItem Value="@("Good")">Good</MudSelectItem>
+                        <MudSelectItem Value="@("Damaged")">Damaged</MudSelectItem>
+                        <MudSelectItem Value="@("Lost")">Lost</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="8">
+                    <MudTextField @bind-Value="_checkinNotes" Label="Notes (optional)" MaxLength="500" Immediate="true" />
+                </MudItem>
+            </MudGrid>
+            @if (_formError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_formError</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="Checkin">Check in</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => _checkinKey = null)">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
+    }
+
     <MudTable Items="@_keys" Hover="true" Stripable="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
         <HeaderContent>
             <MudTh>Identifier</MudTh>
             <MudTh>Type</MudTh>
-            <MudTh>Unit</MudTh>
             <MudTh>Status</MudTh>
             <MudTh>Holder</MudTh>
-            <MudTh>Expected Return</MudTh>
+            <MudTh>Expected return</MudTh>
+            @if (_canManage)
+            {
+                <MudTh></MudTh>
+            }
         </HeaderContent>
         <RowTemplate>
+            @{ var (statusText, statusColor) = BuildingLabels.KeyStatusLabel(context.Status);
+               var overdue = context.Status == KeyStatus.CheckedOut
+                   && context.CurrentCheckout?.ExpectedReturn < DateTime.UtcNow; }
             <MudTd DataLabel="Identifier">@context.Identifier</MudTd>
-            <MudTd DataLabel="Type">@context.Type</MudTd>
-            <MudTd DataLabel="Unit">@(context.UnitNumber ?? "-")</MudTd>
+            <MudTd DataLabel="Type">@BuildingLabels.KeyTypeLabel(context.Type)</MudTd>
             <MudTd DataLabel="Status">
-                <MudChip Size="Size.Small" Color="@GetStatusColor(context.Status)">@context.Status</MudChip>
+                <MudChip Size="Size.Small" Color="@(overdue ? Color.Error : statusColor)">
+                    @(overdue ? "Overdue" : statusText)
+                </MudChip>
             </MudTd>
             <MudTd DataLabel="Holder">@(context.CurrentCheckout?.RecipientName ?? "-")</MudTd>
-            <MudTd DataLabel="Expected Return">@(context.CurrentCheckout is null ? "-" : context.CurrentCheckout.ExpectedReturn.ToString("yyyy-MM-dd HH:mm"))</MudTd>
+            <MudTd DataLabel="Expected return">
+                @(context.CurrentCheckout is null ? "-" : Local(context.CurrentCheckout.ExpectedReturn))
+                @if (context.CurrentCheckout is not null && !string.IsNullOrEmpty(context.CurrentCheckout.Purpose))
+                {
+                    <MudText Typo="Typo.caption">@context.CurrentCheckout.Purpose</MudText>
+                }
+            </MudTd>
+            @if (_canManage)
+            {
+                <MudTd Style="text-align: right;">
+                    @if (context.Status == KeyStatus.Available)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@_busy"
+                                   OnClick="@(() => StartCheckout(context))">Check out</MudButton>
+                    }
+                    else if (context.Status == KeyStatus.CheckedOut)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@_busy"
+                                   OnClick="@(() => StartCheckin(context))">Check in</MudButton>
+                    }
+                </MudTd>
+            }
         </RowTemplate>
         <NoRecordsContent>
-            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No keys registered.</MudTd>
+            <MudTd Colspan="@(_canManage ? 6 : 5)" Class="pa-4" Align="Align.Center">No keys registered.</MudTd>
         </NoRecordsContent>
     </MudTable>
 }
 
 @code {
-    private List<KeyInfo> _keys = new();
-    private bool _loading = true;
+    private string? _buildingId;
     private bool _noBuildings;
+    private bool _canManage;
+    private List<KeyInfo> _keys = new();
+    private List<KeyInfo> _overdue = new();
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
     private string? _loadError;
+
+    private bool _addingKey;
+    private KeyType _newKeyType = KeyType.EntranceMain;
+    private string? _newIdentifier;
+    private string? _newDescription;
+
+    private KeyInfo? _checkoutKey;
+    private string _recipientName = string.Empty;
+    private RecipientType _recipientType = RecipientType.Resident;
+    private string _purpose = string.Empty;
+    private DateTime? _expectedReturn = DateTime.Today.AddDays(3);
+    private string? _formError;
+
+    private KeyInfo? _checkinKey;
+    private string _condition = "Good";
+    private string? _checkinNotes;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
+        if (AuthState is not null)
+        {
+            _canManage = UserRoles.CanManage((await AuthState).User);
+        }
+
+        _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+        if (_buildingId is null)
+        {
+            _noBuildings = true;
+            _loading = false;
+            return;
+        }
+
         try
         {
-            var buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
-            if (buildingId is null)
-            {
-                _noBuildings = true;
-                return;
-            }
-
-            var keys = await BuildingService.GetKeysAsync(buildingId);
+            var keys = await BuildingService.GetKeysAsync(_buildingId);
             _keys = keys.ToList();
+            _overdue = await BuildingService.GetOverdueKeysAsync(_buildingId);
         }
         catch (Exception ex)
         {
@@ -73,13 +247,122 @@ else
         }
     }
 
-    private Color GetStatusColor(KeyStatus status) => status switch
+    private async Task Reload()
     {
-        KeyStatus.Available => Color.Success,
-        KeyStatus.CheckedOut => Color.Warning,
-        KeyStatus.Lost => Color.Error,
-        KeyStatus.Damaged => Color.Error,
-        KeyStatus.InRepair => Color.Info,
-        _ => Color.Default
-    };
+        try
+        {
+            _keys = (await BuildingService.GetKeysAsync(_buildingId!)).ToList();
+            _overdue = await BuildingService.GetOverdueKeysAsync(_buildingId!);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task AddKey()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await BuildingService.AddKeyAsync(_buildingId!, _newKeyType,
+                string.IsNullOrWhiteSpace(_newIdentifier) ? null : _newIdentifier.Trim(),
+                string.IsNullOrWhiteSpace(_newDescription) ? null : _newDescription.Trim());
+            Snackbar.Add("Key registered", Severity.Success);
+            _addingKey = false;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void StartCheckout(KeyInfo key)
+    {
+        _checkoutKey = key;
+        _recipientName = string.Empty;
+        _recipientType = RecipientType.Resident;
+        _purpose = string.Empty;
+        _expectedReturn = DateTime.Today.AddDays(3);
+        _formError = null;
+    }
+
+    private async Task Checkout()
+    {
+        if (_checkoutKey is null)
+        {
+            return;
+        }
+        _formError = null;
+        if (string.IsNullOrWhiteSpace(_recipientName) || string.IsNullOrWhiteSpace(_purpose))
+        {
+            _formError = "Enter who receives the key and why.";
+            return;
+        }
+        if (_expectedReturn is not { } expected)
+        {
+            _formError = "Choose when the key is expected back.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await BuildingService.CheckoutKeyAsync(_buildingId!, _checkoutKey.Id, _recipientName.Trim(), _recipientType,
+                _purpose.Trim(), DateTime.SpecifyKind(expected.Date.AddHours(12), DateTimeKind.Local).ToUniversalTime());
+            Snackbar.Add($"Key {_checkoutKey.Identifier} checked out to {_recipientName.Trim()}", Severity.Success);
+            _checkoutKey = null;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void StartCheckin(KeyInfo key)
+    {
+        _checkinKey = key;
+        _condition = "Good";
+        _checkinNotes = null;
+        _formError = null;
+    }
+
+    private async Task Checkin()
+    {
+        if (_checkinKey is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await BuildingService.CheckinKeyAsync(_buildingId!, _checkinKey.Id, _condition,
+                string.IsNullOrWhiteSpace(_checkinNotes) ? null : _checkinNotes.Trim());
+            Snackbar.Add($"Key {_checkinKey.Identifier} returned ({_condition.ToLowerInvariant()})", Severity.Success);
+            _checkinKey = null;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string Local(DateTime utc) => utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
 }

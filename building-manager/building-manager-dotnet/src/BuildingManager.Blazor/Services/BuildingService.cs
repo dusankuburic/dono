@@ -49,6 +49,12 @@ public class BuildingService : IBuildingService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task RemoveUnitAsync(string buildingId, string unitNumber)
+    {
+        var response = await _httpClient.DeleteAsync($"/api/buildings/{buildingId}/units/{Uri.EscapeDataString(unitNumber)}");
+        await ApiErrors.EnsureSuccessAsync(response, "Could not remove the unit.");
+    }
+
     public async Task<IEnumerable<ResidentInfo>> GetResidentsAsync(string buildingId)
     {
         var response = await _httpClient.GetAsync($"/api/buildings/{buildingId}/residents");
@@ -59,7 +65,19 @@ public class BuildingService : IBuildingService
     public async Task AddResidentAsync(string buildingId, ResidentInfoRequest resident)
     {
         var response = await _httpClient.PostAsJsonAsync($"/api/buildings/{buildingId}/residents", resident);
-        response.EnsureSuccessStatusCode();
+        await ApiErrors.EnsureSuccessAsync(response, "Could not add the resident.");
+    }
+
+    public async Task UpdateResidentAsync(string buildingId, Guid residentId, ResidentInfoRequest resident)
+    {
+        var response = await _httpClient.PutAsJsonAsync($"/api/buildings/{buildingId}/residents/{residentId}", resident);
+        await ApiErrors.EnsureSuccessAsync(response, "Could not save the resident.");
+    }
+
+    public async Task RemoveResidentAsync(string buildingId, Guid residentId)
+    {
+        var response = await _httpClient.DeleteAsync($"/api/buildings/{buildingId}/residents/{residentId}");
+        await ApiErrors.EnsureSuccessAsync(response, "Could not remove the resident.");
     }
 
     public async Task<IEnumerable<KeyInfo>> GetKeysAsync(string buildingId)
@@ -67,6 +85,62 @@ public class BuildingService : IBuildingService
         var response = await _httpClient.GetAsync($"/api/buildings/{buildingId}/keys");
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<IEnumerable<KeyInfo>>() ?? Enumerable.Empty<KeyInfo>();
+    }
+
+    public async Task<List<KeyInfo>> GetOverdueKeysAsync(string buildingId)
+    {
+        var response = await _httpClient.GetAsync($"/api/buildings/{buildingId}/keys/overdue");
+        await ApiErrors.EnsureSuccessAsync(response, "Could not load the overdue keys.");
+        return await response.Content.ReadFromJsonAsync<List<KeyInfo>>() ?? new List<KeyInfo>();
+    }
+
+    public async Task<KeyInfo> AddKeyAsync(string buildingId, KeyType type, string? identifier, string? description)
+    {
+        var response = await _httpClient.PostAsJsonAsync($"/api/buildings/{buildingId}/keys", new
+        {
+            KeyType = type,
+            Identifier = identifier,
+            Description = description
+        });
+        await ApiErrors.EnsureSuccessAsync(response, "Could not add the key.");
+        return new KeyInfo { Id = Guid.Empty, Type = type, Identifier = identifier ?? "", Description = description };
+    }
+
+    public async Task<KeyInfo> CheckoutKeyAsync(string buildingId, Guid keyId, string recipientName,
+        RecipientType recipientType, string purpose, DateTime expectedReturnUtc)
+    {
+        var response = await _httpClient.PostAsJsonAsync($"/api/buildings/{buildingId}/keys/{keyId}/checkout", new
+        {
+            RecipientName = recipientName,
+            RecipientType = recipientType,
+            Purpose = purpose,
+            ExpectedReturn = expectedReturnUtc
+        });
+        await ApiErrors.EnsureSuccessAsync(response, "Could not check out the key.");
+        return await response.Content.ReadFromJsonAsync<KeyInfo>()
+            ?? throw new InvalidOperationException("Could not check out the key.");
+    }
+
+    public async Task<KeyInfo> CheckinKeyAsync(string buildingId, Guid keyId, string condition, string? notes)
+    {
+        var response = await _httpClient.PostAsJsonAsync($"/api/buildings/{buildingId}/keys/{keyId}/checkin", new
+        {
+            Condition = condition,
+            Notes = notes
+        });
+        await ApiErrors.EnsureSuccessAsync(response, "Could not check in the key.");
+        return await response.Content.ReadFromJsonAsync<KeyInfo>()
+            ?? throw new InvalidOperationException("Could not check in the key.");
+    }
+
+    public async Task<WorkOrderInfo> UpdateWorkOrderStatusAsync(string buildingId, Guid workOrderId,
+        WorkOrderStatus status, string? notes)
+    {
+        var response = await _httpClient.PatchAsJsonAsync($"/api/buildings/{buildingId}/workorders/{workOrderId}/status",
+            new { Status = status, Notes = notes });
+        await ApiErrors.EnsureSuccessAsync(response, "Could not update the work order.");
+        return await response.Content.ReadFromJsonAsync<WorkOrderInfo>()
+            ?? throw new InvalidOperationException("Could not update the work order.");
     }
 
     public async Task<IEnumerable<WorkOrderInfo>> GetWorkOrdersAsync(string buildingId, WorkOrderStatus? status = null)

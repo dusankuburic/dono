@@ -11,16 +11,24 @@ public interface IBuildingService
     Task SetFeeStructureAsync(string buildingId, string name, decimal amountPerM2, decimal? fixedAmount);
     Task<IEnumerable<UnitInfo>> GetUnitsAsync(string buildingId);
     Task AddUnitAsync(string buildingId, UnitInfoRequest unit);
+    Task RemoveUnitAsync(string buildingId, string unitNumber);
     Task<IEnumerable<ResidentInfo>> GetResidentsAsync(string buildingId);
     Task AddResidentAsync(string buildingId, ResidentInfoRequest resident);
+    Task UpdateResidentAsync(string buildingId, Guid residentId, ResidentInfoRequest resident);
+    Task RemoveResidentAsync(string buildingId, Guid residentId);
     Task<IEnumerable<KeyInfo>> GetKeysAsync(string buildingId);
+    Task<List<KeyInfo>> GetOverdueKeysAsync(string buildingId);
+    Task<KeyInfo> AddKeyAsync(string buildingId, KeyType type, string? identifier, string? description);
+    Task<KeyInfo> CheckoutKeyAsync(string buildingId, Guid keyId, string recipientName, RecipientType recipientType, string purpose, DateTime expectedReturnUtc);
+    Task<KeyInfo> CheckinKeyAsync(string buildingId, Guid keyId, string condition, string? notes);
     Task<IEnumerable<WorkOrderInfo>> GetWorkOrdersAsync(string buildingId, WorkOrderStatus? status = null);
     Task<WorkOrderInfo> CreateWorkOrderAsync(string buildingId, CreateWorkOrderRequest request);
+    Task<WorkOrderInfo> UpdateWorkOrderStatusAsync(string buildingId, Guid workOrderId, WorkOrderStatus status, string? notes);
     Task<FinancialSummary> GetFinancialSummaryAsync(string buildingId);
 
-        Task<List<BuildingMember>> GetMembersAsync(string buildingId);
+    Task<List<BuildingMember>> GetMembersAsync(string buildingId);
 
-        Task GrantAccessAsync(string buildingId, string email);
+    Task GrantAccessAsync(string buildingId, string email);
 
     Task RevokeAccessAsync(string buildingId, string email);
 }

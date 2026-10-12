@@ -162,6 +162,44 @@ public class BuildingsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created);
     }
 
+    [HttpPut("{buildingId}/residents/{residentId:guid}")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> UpdateResident(string buildingId, Guid residentId, [FromBody] ResidentInfoRequest request)
+    {
+        var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
+        await grain.AddResidentAsync(new ResidentInfo
+        {
+            Id = residentId,
+            UnitNumber = request.UnitNumber,
+            FirstName = request.FirstName,
+            LastName = request.LastName,
+            Email = request.Email,
+            Phone = request.Phone,
+            Role = request.Role,
+            OwnershipShare = request.OwnershipShare
+        });
+        return Ok();
+    }
+
+    [HttpDelete("{buildingId}/residents/{residentId:guid}")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> RemoveResident(string buildingId, Guid residentId)
+    {
+        await _grainFactory.GetGrain<IBuildingGrain>(buildingId).RemoveResidentAsync(residentId);
+        return Ok();
+    }
+
+    [HttpDelete("{buildingId}/units/{unitNumber}")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> RemoveUnit(string buildingId, string unitNumber)
+    {
+        await _grainFactory.GetGrain<IBuildingGrain>(buildingId).RemoveUnitAsync(unitNumber);
+        return Ok();
+    }
+
     [HttpGet("{buildingId}/keys")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<KeyInfo>>> GetKeys(string buildingId)
@@ -170,6 +208,12 @@ public class BuildingsController : ControllerBase
         var keys = await grain.GetAllKeysAsync();
         return Ok(keys);
     }
+
+    /// <summary>Keys past their expected return (UC-010 "keys due").</summary>
+    [HttpGet("{buildingId}/keys/overdue")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<IEnumerable<KeyInfo>>> GetOverdueKeys(string buildingId) =>
+        Ok(await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetOverdueKeysAsync());
 
     [HttpPost("{buildingId}/keys")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
@@ -223,6 +267,24 @@ public class BuildingsController : ControllerBase
     public async Task<ActionResult<WorkOrderInfo>> CreateWorkOrder(string buildingId, [FromBody] CreateWorkOrderRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
+
+        // Only managers may attribute a request to a specific resident; when
+        // nobody is named, the reporter is the resident matching the caller's
+        // account email (UC-003: residents report their own requests).
+        if (request.ReportedByResidentId == Guid.Empty || !AuthPolicies.IsManager(User))
+        {
+            var email = User.FindFirst("email")?.Value;
+            var reporter = (await grain.GetResidentsAsync())
+                .FirstOrDefault(r => string.Equals(r.Email?.Trim(), email, StringComparison.OrdinalIgnoreCase));
+            if (reporter is null)
+            {
+                throw new ArgumentException(
+                    "No resident of this building is registered with your account email; ask the manager to record you first.");
+            }
+
+            request = request with { ReportedByResidentId = reporter.Id };
+        }
+
         var result = await grain.CreateWorkOrderAsync(request);
         return StatusCode(StatusCodes.Status201Created, result);
     }

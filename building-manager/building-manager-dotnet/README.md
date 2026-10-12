@@ -180,6 +180,28 @@ it falls back to a static loopback gateway only when no connection string is set
   Blazor client). Admins bypass access checks (and are not listed as members),
   and `GET /api/buildings` only lists buildings the caller can access.
 
+### Residents, keys and work orders
+
+- **Residents** (Blazor: **Residents**): managers add, edit
+  (`PUT .../residents/{id}`) and remove (`DELETE .../residents/{id}`)
+  residents with unit, role, phone, email and ownership share; the email is
+  what matches a resident to their account (fee status, work-order
+  notifications). The page has a search box and one-tap phone links. A unit
+  can be removed with `DELETE .../units/{number}` (building detail page).
+- **Keys** (Blazor: **Keys**): managers register keys, check them out
+  (recipient, recipient type, purpose, expected return) and back in
+  (condition: good/damaged/lost, notes). `GET .../keys/overdue` lists keys
+  past due (shown as red "Overdue" chips and counted in the header; the
+  scheduler also digests them to managers daily). Key receipts as PDF/SMS
+  are not implemented yet.
+- **Work orders** (Blazor: **Work Orders**): anyone with access files a
+  maintenance request — the reporter is resolved from the resident matching
+  the caller's account email (managers may attribute another resident);
+  emergencies are flagged and notified. Managers update the status with an
+  optional note for the resident (which also sends the in-app notification).
+  Assignment to service providers, completion photos and PDF export are not
+  implemented yet.
+
 ### Owners' assemblies
 
 `/api/buildings/{id}/assemblies` (Blazor: **Assemblies** in the menu). Anyone

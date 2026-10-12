@@ -1,10 +1,19 @@
 @page "/workorders"
 @inject IBuildingService BuildingService
 @inject IBuildingSelectionService BuildingSelection
+@inject ISnackbar Snackbar
 
 <PageTitle>Work Orders</PageTitle>
 
-<MudText Typo="Typo.h3" Class="mb-4">Work Orders</MudText>
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+    <MudText Typo="Typo.h3">Work Orders</MudText>
+    @if (_buildingId is not null && _composing is null)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="StartCompose">
+            New request
+        </MudButton>
+    }
+</MudStack>
 
 @if (_noBuildings)
 {
@@ -12,58 +21,327 @@
         No buildings yet. <MudLink Href="/buildings/new">Create a building</MudLink> first.
     </MudAlert>
 }
+else if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@_loadError</MudAlert>
+}
 else
 {
+    @if (_composing is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="4">
+            <MudText Typo="Typo.h6" Class="mb-2">New maintenance request</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_title" Label="Title" MaxLength="200" Counter="200" Immediate="true" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="WorkOrderCategory" @bind-Value="_category" Label="Category">
+                        @foreach (var category in Enum.GetValues<WorkOrderCategory>())
+                        {
+                            <MudSelectItem Value="@category">@BuildingLabels.CategoryLabel(category)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="Priority" @bind-Value="_priority" Label="Urgency">
+                        @foreach (var priority in Enum.GetValues<Priority>())
+                        {
+                            <MudSelectItem Value="@priority">@BuildingLabels.PriorityLabel(priority).Text</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_description" Label="Describe the problem" Lines="4" MaxLength="2000"
+                                  Counter="2000" Immediate="true" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="string" @bind-Value="_unit" Label="Unit (optional)" Clearable="true">
+                        @foreach (var unit in _units)
+                        {
+                            <MudSelectItem Value="@unit.Number">@unit.Number</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                @if (_canManage && _residents.Count > 0)
+                {
+                    <MudItem xs="12" sm="6" md="4">
+                        <MudSelect T="Guid" @bind-Value="_reportedById" Label="Reported by">
+                            @foreach (var resident in _residents)
+                            {
+                                <MudSelectItem Value="@resident.Id">@BuildingLabels.Resident(resident)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                }
+                <MudItem xs="12" sm="6" md="2">
+                    <MudCheckBox T="bool" @bind-Checked="_emergency" Label="Emergency" Color="Color.Error" />
+                </MudItem>
+            </MudGrid>
+            @if (_priority == Priority.Emergency)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">
+                    Emergencies must be resolved within 48 hours; the manager is notified immediately.
+                </MudAlert>
+            }
+            @if (_formError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_formError</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="Submit">Submit request</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => _composing = null)">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
+    }
+
     <MudButtonGroup Class="mb-4">
-        <MudButton Variant="@(CurrentStatus == null ? Variant.Filled : Variant.Outlined)" OnClick="@(() => SetStatus(null))">All</MudButton>
-        <MudButton Variant="@(CurrentStatus == WorkOrderStatus.New ? Variant.Filled : Variant.Outlined)" Color="Color.Warning" OnClick="@(() => SetStatus(WorkOrderStatus.New))">New</MudButton>
-        <MudButton Variant="@(CurrentStatus == WorkOrderStatus.InProgress ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => SetStatus(WorkOrderStatus.InProgress))">In Progress</MudButton>
-        <MudButton Variant="@(CurrentStatus == WorkOrderStatus.Completed ? Variant.Filled : Variant.Outlined)" Color="Color.Success" OnClick="@(() => SetStatus(WorkOrderStatus.Completed))">Completed</MudButton>
+        @foreach (var filter in FilterButtons)
+        {
+            <MudButton Variant="@(CurrentStatus == filter.Status ? Variant.Filled : Variant.Outlined)"
+                       Color="filter.Color" OnClick="@(() => SetStatus(filter.Status))">@filter.Text</MudButton>
+        }
     </MudButtonGroup>
 
-    <MudTable Items="@_workOrders" Hover="true" Breakpoint="Breakpoint.Sm">
+    <MudTable Items="@_workOrders" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
         <HeaderContent>
             <MudTh>Reference</MudTh>
             <MudTh>Title</MudTh>
             <MudTh>Category</MudTh>
-            <MudTh>Priority</MudTh>
+            <MudTh>Urgency</MudTh>
             <MudTh>Status</MudTh>
             <MudTh>Created</MudTh>
+            @if (_canManage)
+            {
+                <MudTh></MudTh>
+            }
         </HeaderContent>
         <RowTemplate>
+            @{ var (priorityText, priorityColor) = BuildingLabels.PriorityLabel(context.Priority);
+               var (statusText, statusColor) = BuildingLabels.WorkOrderStatusLabel(context.Status); }
             <MudTd DataLabel="Reference">@context.ReferenceNumber</MudTd>
-            <MudTd DataLabel="Title">@context.Title</MudTd>
-            <MudTd DataLabel="Category">@context.Category</MudTd>
-            <MudTd DataLabel="Priority">
-                <MudChip Color="@GetPriorityColor(context.Priority)" Size="Size.Small">@context.Priority</MudChip>
+            <MudTd DataLabel="Title">
+                @context.Title
+                @if (!string.IsNullOrEmpty(context.UnitNumber))
+                {
+                    <MudChip Size="Size.Small" Label="true" Class="ml-1">@context.UnitNumber</MudChip>
+                }
+            </MudTd>
+            <MudTd DataLabel="Category">@BuildingLabels.CategoryLabel(context.Category)</MudTd>
+            <MudTd DataLabel="Urgency">
+                <MudChip Color="@priorityColor" Size="Size.Small">@priorityText</MudChip>
             </MudTd>
             <MudTd DataLabel="Status">
-                <MudChip Color="@GetStatusColor(context.Status)" Size="Size.Small">@context.Status</MudChip>
+                <MudChip Color="@statusColor" Size="Size.Small">@statusText</MudChip>
             </MudTd>
-            <MudTd DataLabel="Created">@context.CreatedAt.ToString("yyyy-MM-dd")</MudTd>
+            <MudTd DataLabel="Created">@context.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</MudTd>
+            @if (_canManage)
+            {
+                <MudTd Style="text-align: right;">
+                    @if (context.Status is not (WorkOrderStatus.Completed or WorkOrderStatus.Cancelled))
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="@_busy"
+                                   OnClick="@(() => StartStatusChange(context))">Update</MudButton>
+                    }
+                </MudTd>
+            }
         </RowTemplate>
         <NoRecordsContent>
-            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No work orders match this filter.</MudTd>
+            <MudTd Colspan="@(_canManage ? 7 : 6)" Class="pa-4" Align="Align.Center">No work orders match this filter.</MudTd>
         </NoRecordsContent>
     </MudTable>
+
+    @if (_statusChange is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="4">
+            <MudText Typo="Typo.h6" Class="mb-2">@_statusChange.ReferenceNumber: @_statusChange.Title</MudText>
+            <MudGrid>
+                <MudItem xs="12" sm="6" md="4">
+                    <MudSelect T="WorkOrderStatus" @bind-Value="_newStatus" Label="Status">
+                        @foreach (var status in Enum.GetValues<WorkOrderStatus>())
+                        {
+                            <MudSelectItem Value="@status">@BuildingLabels.WorkOrderStatusLabel(status).Text</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="8">
+                    <MudTextField @bind-Value="_statusNotes" Label="Note for the resident (optional)" MaxLength="1000" Immediate="true" />
+                </MudItem>
+            </MudGrid>
+            @if (_formError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_formError</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SaveStatus">Save</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => _statusChange = null)">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
 }
 
 @code {
     private string? _buildingId;
     private bool _noBuildings;
+    private bool _canManage;
     private List<WorkOrderInfo> _workOrders = new();
+    private List<UnitInfo> _units = new();
+    private List<ResidentInfo> _residents = new();
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _loadError;
     private WorkOrderStatus? CurrentStatus { get; set; }
+
+    private bool? _composing;
+    private string _title = string.Empty;
+    private string _description = string.Empty;
+    private WorkOrderCategory _category = WorkOrderCategory.Other;
+    private Priority _priority = Priority.Normal;
+    private string? _unit;
+    private Guid _reportedById;
+    private bool _emergency;
+    private string? _formError;
+
+    private WorkOrderInfo? _statusChange;
+    private WorkOrderStatus _newStatus;
+    private string? _statusNotes;
+
+    private static readonly (WorkOrderStatus? Status, string Text, Color Color)[] FilterButtons =
+    {
+        (null, "All", Color.Default),
+        (WorkOrderStatus.New, "New", Color.Warning),
+        (WorkOrderStatus.InProgress, "In progress", Color.Info),
+        (WorkOrderStatus.Completed, "Completed", Color.Success)
+    };
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
+        if (AuthState is not null)
+        {
+            _canManage = UserRoles.CanManage((await AuthState).User);
+        }
+
         _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
         if (_buildingId is null)
         {
             _noBuildings = true;
+            _loading = false;
             return;
         }
 
-        await LoadWorkOrders();
+        try
+        {
+            await LoadWorkOrders();
+            if (_canManage)
+            {
+                _residents = (await BuildingService.GetResidentsAsync(_buildingId)).ToList();
+            }
+            _units = (await BuildingService.GetUnitsAsync(_buildingId)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not load work orders: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void StartCompose()
+    {
+        _composing = true;
+        _title = _description = string.Empty;
+        _category = WorkOrderCategory.Other;
+        _priority = Priority.Normal;
+        _unit = null;
+        _reportedById = _canManage && _residents.Count > 0 ? _residents[0].Id : Guid.Empty;
+        _emergency = false;
+        _formError = null;
+    }
+
+    private async Task Submit()
+    {
+        _formError = null;
+        if (string.IsNullOrWhiteSpace(_title) || _description.Trim().Length < 10)
+        {
+            _formError = "Enter a title and a description of at least 10 characters.";
+            return;
+        }
+        if (_canManage && _reportedById == Guid.Empty)
+        {
+            _formError = "Choose who reported the request.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var created = await BuildingService.CreateWorkOrderAsync(_buildingId!, new CreateWorkOrderRequest
+            {
+                Title = _title.Trim(),
+                Description = _description.Trim(),
+                Category = _category,
+                Priority = _priority,
+                UnitNumber = string.IsNullOrWhiteSpace(_unit) ? null : _unit,
+                ReportedByResidentId = _reportedById,
+                IsEmergency = _emergency
+            });
+            Snackbar.Add($"Request {created.ReferenceNumber} submitted", Severity.Success);
+            _composing = null;
+            await LoadWorkOrders();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void StartStatusChange(WorkOrderInfo workOrder)
+    {
+        _statusChange = workOrder;
+        _newStatus = workOrder.Status;
+        _statusNotes = null;
+        _formError = null;
+    }
+
+    private async Task SaveStatus()
+    {
+        if (_statusChange is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await BuildingService.UpdateWorkOrderStatusAsync(_buildingId!, _statusChange.Id, _newStatus,
+                string.IsNullOrWhiteSpace(_statusNotes) ? null : _statusNotes.Trim());
+            Snackbar.Add("Work order updated", Severity.Success);
+            _statusChange = null;
+            await LoadWorkOrders();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task SetStatus(WorkOrderStatus? status)
@@ -79,26 +357,13 @@ else
             return;
         }
 
-        var workOrders = await BuildingService.GetWorkOrdersAsync(_buildingId, CurrentStatus);
-        _workOrders = workOrders.ToList();
+        try
+        {
+            _workOrders = (await BuildingService.GetWorkOrdersAsync(_buildingId, CurrentStatus)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
     }
-
-    private Color GetPriorityColor(Priority priority) => priority switch
-    {
-        Priority.Low => Color.Info,
-        Priority.Normal => Color.Warning,
-        Priority.High => Color.Error,
-        Priority.Emergency => Color.Error,
-        _ => Color.Default
-    };
-
-    private Color GetStatusColor(WorkOrderStatus status) => status switch
-    {
-        WorkOrderStatus.New => Color.Warning,
-        WorkOrderStatus.Acknowledged => Color.Info,
-        WorkOrderStatus.InProgress => Color.Info,
-        WorkOrderStatus.Completed => Color.Success,
-        WorkOrderStatus.Cancelled => Color.Error,
-        _ => Color.Default
-    };
 }
