@@ -19,6 +19,7 @@
     <PackageReference Include="Microsoft.Orleans.Clustering.AdoNet" />
     <PackageReference Include="Microsoft.Orleans.Persistence.AdoNet" />
     <PackageReference Include="Microsoft.Orleans.Reminders" />
+    <PackageReference Include="Microsoft.Orleans.Reminders.AdoNet" />
     <PackageReference Include="OrleansDashboard" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Serilog.AspNetCore" />

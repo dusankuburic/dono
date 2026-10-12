@@ -45,6 +45,13 @@ public interface IBuildingGrain : IGrainWithStringKey
     /// <summary>Takes an announcement out of the feed by expiring it now; it stays in the history.</summary>
     Task ArchiveAnnouncementAsync(Guid announcementId);
 
+    /// <summary>
+    /// Marks scheduled announcements whose time has come as sent and returns
+    /// them, so the scheduler can notify members. Announcements already
+    /// expired before their scheduled time are marked sent but not returned.
+    /// </summary>
+    Task<List<AnnouncementInfo>> PublishDueAnnouncementsAsync();
+
     /// <summary>All document records, newest first. The caller filters by access level.</summary>
     Task<IEnumerable<DocumentInfo>> GetDocumentsAsync();
 

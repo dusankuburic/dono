@@ -185,6 +185,24 @@ Communication Services to send for real: `Email:ConnectionString` +
 `Sms:From` (E.164; SMS costs apply). Email/SMS fan-out on events, delivery
 preferences and quiet hours are not implemented yet.
 
+### Background jobs
+
+A singleton scheduler grain (`ISchedulerGrain`, key "global") runs on an
+Orleans reminder every 5 minutes (backed by the ADO.NET reminder table in
+`building_manager_orleans`, so schedules survive restarts):
+
+- publishes scheduled announcements when they come due (sets `SentAt`) and
+  notifies the building's members in-app — until then they stay out of the feed;
+- on the first pass of each day, reminds members of a noticed assembly two
+  days, one day and on the day of the meeting (at most one reminder per
+  assembly per day, tracked per assembly);
+- daily digest for managers: keys past their expected return
+  (UC-002) and emergency work orders past the 48-hour deadline (UC-023),
+  matched to member accounts with a management role.
+
+Any caller can trigger a pass with `RunSweepAsync()` (used by tests). Payment
+reminders (UC-008) and deadline tracking (UC-012) are later phases.
+
 ### Documents
 
 `/api/buildings/{id}/documents` (Blazor: **Documents**). Managers upload

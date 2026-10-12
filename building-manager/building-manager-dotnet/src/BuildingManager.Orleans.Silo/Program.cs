@@ -63,6 +63,15 @@ builder.Host.UseOrleans(silo =>
             options.ConnectionString = connectionString;
             options.Invariant = "Npgsql";
         })
+        // Scheduled background work (the scheduler grain's reminders): the
+        // reminder table uses the same database, so schedules survive restarts
+        // (the reminders table comes with the standard Orleans SQL scripts).
+        .AddReminders()
+        .UseAdoNetReminderService(options =>
+        {
+            options.ConnectionString = connectionString;
+            options.Invariant = "Npgsql";
+        })
         .UseDashboard(options =>
         {
             options.Host = "*";

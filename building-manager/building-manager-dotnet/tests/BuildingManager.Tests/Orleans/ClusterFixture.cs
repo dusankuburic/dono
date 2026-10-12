@@ -34,7 +34,12 @@ public sealed class ClusterFixture : IAsyncLifetime
     {
         public void Configure(ISiloBuilder siloBuilder)
         {
-            siloBuilder.AddMemoryGrainStorage("buildingStorage");
+            siloBuilder
+                .AddMemoryGrainStorage("buildingStorage")
+                // The scheduler grain registers a reminder on activation; the
+                // in-memory reminder table keeps tests database-free.
+                .AddReminders()
+                .UseInMemoryReminderService();
         }
     }
 }

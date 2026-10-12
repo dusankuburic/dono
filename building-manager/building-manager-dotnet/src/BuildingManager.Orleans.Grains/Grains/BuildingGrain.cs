@@ -528,6 +528,29 @@ public class BuildingGrain : Grain, IBuildingGrain
         await _state.WriteStateAsync();
     }
 
+    public async Task<List<AnnouncementInfo>> PublishDueAnnouncementsAsync()
+    {
+        var now = DateTime.UtcNow;
+        var due = _state.State.Announcements.Values
+            .Where(a => a.ScheduledFor is { } scheduledFor && scheduledFor <= now && a.SentAt is null)
+            .OrderBy(a => a.ScheduledFor)
+            .ToList();
+        if (due.Count == 0)
+            return new List<AnnouncementInfo>();
+
+        foreach (var announcement in due)
+            announcement.SentAt = now;
+        _state.State.UpdatedAt = now;
+        await _state.WriteStateAsync();
+
+        // One scheduled to a moment that has already slipped past its expiry
+        // never reaches the feed; members hear nothing about it.
+        return due
+            .Where(a => a.ExpiresAt is not { } expiresAt || expiresAt > now)
+            .Select(MapAnnouncement)
+            .ToList();
+    }
+
     private AnnouncementState FindAnnouncement(Guid announcementId) =>
         _state.State.Announcements.TryGetValue(announcementId, out var announcement)
             ? announcement
