@@ -6,10 +6,6 @@ using QuestPDF.Infrastructure;
 
 namespace BuildingManager.Api.Reports;
 
-/// <summary>
-/// Fee-status exports (UC-008: the unpaid list). The input is whatever the
-/// caller may see — for owners the API scopes the units to their own first.
-/// </summary>
 public class FinanceReportGenerator
 {
     static FinanceReportGenerator() => QuestPDF.Settings.License = LicenseType.Community;

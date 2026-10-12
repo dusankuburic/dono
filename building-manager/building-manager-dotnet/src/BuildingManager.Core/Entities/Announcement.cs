@@ -16,12 +16,12 @@ public class Announcement : BaseEntity
 
     private Announcement() { }
 
-    public static Announcement Create(Guid buildingId, string title, string content, 
+    public static Announcement Create(Guid buildingId, string title, string content,
         AnnouncementType type, Guid createdBy, DateTime? scheduledFor = null, DateTime? expiresAt = null)
     {
         if (string.IsNullOrWhiteSpace(title))
             throw new ArgumentException("Title is required", nameof(title));
-        
+
         if (string.IsNullOrWhiteSpace(content))
             throw new ArgumentException("Content is required", nameof(content));
 

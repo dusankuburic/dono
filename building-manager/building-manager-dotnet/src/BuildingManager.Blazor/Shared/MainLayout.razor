@@ -94,13 +94,9 @@
         }
         catch
         {
-            // The API is unreachable; the selector stays hidden and pages show
-            // their own error state.
+
         }
 
-        // The bell's unread badge: check right away, then once a minute. Skips
-        // the API call while signed out and ignores errors (the badge is not
-        // worth failing anything over).
         _notificationTimer = new PeriodicTimer(TimeSpan.FromMinutes(1));
         _ = PollNotificationsAsync();
     }
@@ -138,7 +134,7 @@
         }
         catch
         {
-            // Signed out (refresh failed) or API down: keep the last badge.
+
         }
     }
 
@@ -158,7 +154,7 @@
         }
 
         await BuildingSelection.SetSelectedBuildingIdAsync(buildingId);
-        // Pages cache data for the selected building; reload to re-query them.
+
         Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
     }
 

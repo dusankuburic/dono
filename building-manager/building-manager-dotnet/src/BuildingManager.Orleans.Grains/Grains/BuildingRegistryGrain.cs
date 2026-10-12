@@ -4,10 +4,6 @@ using Orleans.Runtime;
 
 namespace BuildingManager.Orleans.Grains;
 
-/// <summary>
-/// Singleton grain (key "global") tracking all initialized buildings so they
-/// can be enumerated. Single key = single activation = no concurrency issues.
-/// </summary>
 public class BuildingRegistryGrain : Grain, IBuildingRegistryGrain
 {
     private readonly IPersistentState<BuildingRegistryState> _state;

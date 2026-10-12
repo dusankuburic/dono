@@ -9,11 +9,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Api;
 
-/// <summary>
-/// BuildingAccessHandler decides, per request, whether the caller may operate
-/// on the building in the route. These tests run it against the real user
-/// grains in the test cluster.
-/// </summary>
 public class BuildingAccessHandlerTests : IClassFixture<Orleans.ClusterFixture>
 {
     private readonly Orleans.ClusterFixture _fixture;

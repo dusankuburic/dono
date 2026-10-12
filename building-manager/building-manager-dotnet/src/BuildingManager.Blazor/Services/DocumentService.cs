@@ -7,11 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>Building documents. Failures throw InvalidOperationException with the API's message.</summary>
 public interface IDocumentService
 {
-    /// <summary>Documents the user may see (managers: all; others: shared with owners), newest first.</summary>
-    Task<List<DocumentInfo>> GetDocumentsAsync(string buildingId);
+        Task<List<DocumentInfo>> GetDocumentsAsync(string buildingId);
 
     Task<DocumentInfo> UploadAsync(string buildingId, IBrowserFile file, DocumentFolder folder,
         DocumentAccessLevel accessLevel, string? description);

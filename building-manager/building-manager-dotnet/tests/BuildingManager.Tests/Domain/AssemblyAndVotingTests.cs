@@ -51,8 +51,7 @@ public class AgendaItemVoteCountingTests
     [Fact]
     public void Simple_Majority_Fails_When_Abstentions_Prevent_Majority()
     {
-        // 40 for / 35 against / 25 abstain: only 40% of the present voting
-        // share supports the decision, which is not a majority.
+
         var (_, item) = CreateAssemblyWithItem(VotingType.Simple);
         CastVotes(item, forShare: 40, againstShare: 35, abstainShare: 25);
 
@@ -64,8 +63,7 @@ public class AgendaItemVoteCountingTests
     [Fact]
     public void TwoThirds_Passes_At_Exactly_TwoThirds()
     {
-        // 66.666...% voted for: must pass. This is the regression test for the
-        // old >= 66.67 percentage comparison which rejected an exact two-thirds vote.
+
         var (_, item) = CreateAssemblyWithItem(VotingType.TwoThirds);
         CastVotes(item, forShare: 20, againstShare: 7, abstainShare: 3);
 
@@ -175,8 +173,7 @@ public class AssemblyQuorumTests
     [Fact]
     public void Repeated_Session_Accepts_Exactly_One_Third()
     {
-        // 30 of 90 eligible votes is exactly one third and must count as
-        // quorum (regression test for percentage-rounding comparisons).
+
         var assembly = Assembly.Create(Guid.NewGuid(), DateTime.UtcNow, "Lobby", SessionType.Repeated);
 
         assembly.RecordAttendance(Guid.NewGuid(), AttendanceType.Proxy, 30);

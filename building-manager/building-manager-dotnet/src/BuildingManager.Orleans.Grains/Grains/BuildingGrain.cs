@@ -27,14 +27,7 @@ public class BuildingGrain : Grain, IBuildingGrain
         await base.OnActivateAsync(cancellationToken);
     }
 
-    /// <summary>
-    /// Payments and expenses used to be stored in this grain's state. Moves
-    /// any that remain into the per-month finance grains. Finance grains
-    /// dedupe by id, so an interrupted migration is safely redone on the next
-    /// activation. Never fails activation: on error the legacy data is kept
-    /// and retried later.
-    /// </summary>
-    private async Task MigrateLegacyFinanceAsync()
+        private async Task MigrateLegacyFinanceAsync()
     {
         if (_state.State.Payments.Count == 0 && _state.State.Expenses.Count == 0)
         {
@@ -143,7 +136,6 @@ public class BuildingGrain : Grain, IBuildingGrain
 
         await _state.WriteStateAsync();
 
-        // Make the building discoverable through the cluster-wide registry.
         var registry = GrainFactory.GetGrain<IBuildingRegistryGrain>("global");
         await registry.RegisterAsync(_state.State.Id, info.Name);
     }
@@ -159,7 +151,7 @@ public class BuildingGrain : Grain, IBuildingGrain
         _state.State.HasElevator = info.HasElevator;
         _state.State.HasParking = info.HasParking;
         _state.State.UpdatedAt = DateTime.UtcNow;
-        
+
         await _state.WriteStateAsync();
     }
 
@@ -184,8 +176,7 @@ public class BuildingGrain : Grain, IBuildingGrain
 
     public Task<IEnumerable<UnitInfo>> GetAllUnitsAsync()
     {
-        // Materialize with ToArray: Orleans must copy the result across the
-        // wire and cannot serialize lazy LINQ iterators.
+
         var units = _state.State.Units.Values.Select(u => new UnitInfo
         {
             Id = u.Id,
@@ -213,7 +204,7 @@ public class BuildingGrain : Grain, IBuildingGrain
             Type = unit.Type,
             Status = unit.Status
         };
-        
+
         _state.State.Units[unit.Number] = state;
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
@@ -258,7 +249,7 @@ public class BuildingGrain : Grain, IBuildingGrain
             OwnershipShare = resident.OwnershipShare,
             IsActive = true
         };
-        
+
         _state.State.Residents[resident.Id] = state;
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
@@ -361,7 +352,7 @@ public class BuildingGrain : Grain, IBuildingGrain
             Status = key.Status,
             Description = key.Description
         };
-        
+
         _state.State.Keys[key.Id] = state;
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
@@ -391,7 +382,7 @@ public class BuildingGrain : Grain, IBuildingGrain
     public async Task<WorkOrderInfo> CreateWorkOrderAsync(CreateWorkOrderRequest request)
     {
         var reference = $"WO-{DateTime.UtcNow:yyyyMMdd}-{this.GetPrimaryKeyString()[..8]}-{Guid.NewGuid().ToString()[..4]}";
-        
+
         var workOrder = new WorkOrderState
         {
             Id = Guid.NewGuid(),
@@ -407,7 +398,7 @@ public class BuildingGrain : Grain, IBuildingGrain
             EmergencyDeadline = request.IsEmergency ? DateTime.UtcNow.AddHours(48) : null,
             CreatedAt = DateTime.UtcNow
         };
-        
+
         _state.State.WorkOrders[workOrder.Id] = workOrder;
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
@@ -427,7 +418,7 @@ public class BuildingGrain : Grain, IBuildingGrain
         workOrder.Status = status;
         if (status == WorkOrderStatus.Completed)
             workOrder.CompletedAt = DateTime.UtcNow;
-        
+
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
 
@@ -444,15 +435,13 @@ public class BuildingGrain : Grain, IBuildingGrain
             throw new ArgumentException("Unknown announcement type.", nameof(announcement));
 
         var now = DateTime.UtcNow;
-        // A minute of slack for "publish now" sent with the client's clock.
+
         if (announcement.ScheduledFor is { } scheduledFor && scheduledFor < now.AddMinutes(-1))
             throw new ArgumentException("The scheduled time is in the past.", nameof(announcement));
         var publishedAt = announcement.ScheduledFor is { } at && at > now ? at : now;
         if (announcement.ExpiresAt is { } expiresAt && expiresAt <= publishedAt)
             throw new ArgumentException("The announcement must expire after it is published.", nameof(announcement));
 
-        // Bound the state: drop unpinned announcements over a year old. Expiry
-        // alone does not remove them, so managers keep a year of history.
         var staleKeys = _state.State.Announcements
             .Where(kv => kv.Value.CreatedAt < now.AddYears(-1) && !kv.Value.IsPinned)
             .Select(kv => kv.Key)
@@ -520,7 +509,7 @@ public class BuildingGrain : Grain, IBuildingGrain
         var announcement = FindAnnouncement(announcementId);
         var now = DateTime.UtcNow;
         if (announcement.ExpiresAt is { } expiresAt && expiresAt <= now)
-            return; // already out of the feed
+            return;
 
         announcement.ExpiresAt = now;
         announcement.IsPinned = false;
@@ -543,8 +532,6 @@ public class BuildingGrain : Grain, IBuildingGrain
         _state.State.UpdatedAt = now;
         await _state.WriteStateAsync();
 
-        // One scheduled to a moment that has already slipped past its expiry
-        // never reaches the feed; members hear nothing about it.
         return due
             .Where(a => a.ExpiresAt is not { } expiresAt || expiresAt > now)
             .Select(MapAnnouncement)
@@ -659,10 +646,6 @@ public class BuildingGrain : Grain, IBuildingGrain
         var startDate = from ?? now.AddMonths(-12);
         var endDate = to ?? now;
 
-        // Fetch months sequentially: a parallel fan-out activates many month
-        // grains at once and can burst-open more database connections than
-        // the storage backend tolerates. Payments older than the range can
-        // still exist (e.g. imported history), so no creation-date clamp.
         decimal totalIncome = 0, totalExpenses = 0;
         var payingUnits = new HashSet<string>();
         MonthlyTotals? currentMonthTotals = null;
@@ -681,7 +664,6 @@ public class BuildingGrain : Grain, IBuildingGrain
             }
         }
 
-        // Receivables are always about the current month, regardless of range.
         currentMonthTotals ??= await GetFinanceGrain(currentMonth).GetMonthlyTotalsAsync();
 
         var totalUnits = _state.State.Units.Count;
@@ -696,12 +678,7 @@ public class BuildingGrain : Grain, IBuildingGrain
         };
     }
 
-    /// <summary>
-    /// For the current month: sum over units of (expected fee - payments made),
-    /// floored at zero per unit. Mirrors FeeStructure.CalculateFee from the domain
-    /// (fixed amount + per-m2 amount).
-    /// </summary>
-    private decimal CalculateOutstandingReceivables(MonthlyTotals currentMonth)
+        private decimal CalculateOutstandingReceivables(MonthlyTotals currentMonth)
     {
         var now = DateTime.UtcNow;
         var fee = FeeInForce(new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc));
@@ -716,12 +693,7 @@ public class BuildingGrain : Grain, IBuildingGrain
         return outstanding;
     }
 
-    /// <summary>
-    /// The fee structure in force by the end of the month, so a fee first set
-    /// mid-month already applies to that month. Older structures stay in the
-    /// list (inactive) and still govern the months before a change.
-    /// </summary>
-    private FeeStructureState? FeeInForce(DateTime monthStart)
+        private FeeStructureState? FeeInForce(DateTime monthStart)
     {
         var monthEnd = monthStart.AddMonths(1);
         return _state.State.FeeStructures
@@ -785,8 +757,6 @@ public class BuildingGrain : Grain, IBuildingGrain
         var now = DateTime.UtcNow;
         var month = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        // Payments live in the month they were received, which is never in
-        // the future, so walking back from this month finds all of them.
         var payments = new List<PaymentInfo>();
         for (var i = 0; i < months; i++, month = month.AddMonths(-1))
         {
@@ -799,13 +769,9 @@ public class BuildingGrain : Grain, IBuildingGrain
 
     public async Task RecordPaymentAsync(PaymentInfo payment)
     {
-        // Payments live in the grain of the month they were received;
-        // PaymentDate is the routing key and the source of truth for income
-        // range queries.
+
         await GetFinanceGrain(payment.PaymentDate).RecordPaymentAsync(payment);
 
-        // Receivables are per billing month. A late or advance payment is
-        // also credited to the month it pays for.
         var billingPeriod = FinanceGrain.BillingPeriodOf(payment);
         if (billingPeriod != new DateTime(payment.PaymentDate.Year, payment.PaymentDate.Month, 1))
         {
@@ -821,8 +787,7 @@ public class BuildingGrain : Grain, IBuildingGrain
     private IFinanceGrain GetFinanceGrain(DateTime date) =>
         GrainFactory.GetGrain<IFinanceGrain>($"{this.GetPrimaryKeyString()}|{date:yyyy-MM}");
 
-    /// <summary>Month keys ("yyyy-MM") from start to end, inclusive. Max 1200 months.</summary>
-    private static IEnumerable<DateTime> EnumerateMonths(DateTime start, DateTime end)
+        private static IEnumerable<DateTime> EnumerateMonths(DateTime start, DateTime end)
     {
         var current = new DateTime(start.Year, start.Month, 1);
         var last = new DateTime(end.Year, end.Month, 1);
@@ -914,19 +879,16 @@ public class BuildingAggregateState
     [Id(10)] public decimal TotalAreaM2 { get; set; }
     [Id(11)] public DateTime CreatedAt { get; set; }
     [Id(12)] public DateTime UpdatedAt { get; set; }
-    
+
     [Id(13)] public Dictionary<string, UnitState> Units { get; set; } = new();
     [Id(14)] public Dictionary<Guid, ResidentState> Residents { get; set; } = new();
     [Id(15)] public Dictionary<Guid, KeyState> Keys { get; set; } = new();
     [Id(16)] public Dictionary<Guid, WorkOrderState> WorkOrders { get; set; } = new();
     [Id(17)] public Dictionary<Guid, AnnouncementState> Announcements { get; set; } = new();
-    // Payments and expenses live in per-month finance grains keyed
-    // "{buildingId}|{yyyy-MM}" — see IFinanceGrain. These two fields only hold
-    // pre-split data until MigrateLegacyFinanceAsync moves it; names and ids
-    // must stay as they are so stored state still deserializes.
+
     [Id(18)] public Dictionary<Guid, PaymentState> Payments { get; set; } = new();
     [Id(19)] public Dictionary<Guid, ExpenseState> Expenses { get; set; } = new();
     [Id(20)] public List<FeeStructureState> FeeStructures { get; set; } = new();
-    // Document metadata only; the file bytes live in blob storage.
+
     [Id(21)] public Dictionary<Guid, DocumentState> Documents { get; set; } = new();
 }

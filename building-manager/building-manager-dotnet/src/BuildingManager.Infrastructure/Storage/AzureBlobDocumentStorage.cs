@@ -4,27 +4,15 @@ using Azure.Storage.Blobs.Models;
 
 namespace BuildingManager.Infrastructure.Storage;
 
-/// <summary>
-/// Stores building document content (PDFs, images) outside grain state,
-/// which only keeps the metadata. Local development runs against Azurite
-/// (docker-compose) via "UseDevelopmentStorage=true".
-/// </summary>
 public interface IBuildingDocumentStorage
 {
     Task UploadAsync(string buildingId, Guid documentId, string contentType, Stream content);
 
-    /// <summary>Opens the blob for reading; the caller disposes the stream.</summary>
-    Task<Stream> OpenReadAsync(string buildingId, Guid documentId);
+        Task<Stream> OpenReadAsync(string buildingId, Guid documentId);
 
-    /// <summary>Removes the blob; a missing blob is not an error (the record may already be gone).</summary>
-    Task DeleteAsync(string buildingId, Guid documentId);
+        Task DeleteAsync(string buildingId, Guid documentId);
 }
 
-/// <summary>
-/// Azure Blob Storage implementation. One container holds every building;
-/// blobs are named "{buildingId}/{documentId}" so buildings never mix and
-/// display name / content type come from the grain metadata, not the blob.
-/// </summary>
 public class AzureBlobDocumentStorage : IBuildingDocumentStorage
 {
     private readonly BlobContainerClient _container;
@@ -66,8 +54,7 @@ public class AzureBlobDocumentStorage : IBuildingDocumentStorage
         await blob.DeleteIfExistsAsync();
     }
 
-    /// <summary>Create the container on first use so a fresh Azurite/account just works.</summary>
-    private async Task EnsureContainerAsync()
+        private async Task EnsureContainerAsync()
     {
         if (_containerEnsured)
             return;

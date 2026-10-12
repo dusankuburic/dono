@@ -16,7 +16,7 @@ public class AgendaItem : BaseEntity
     public decimal? VotesAgainst { get; private set; }
     public decimal? VotesAbstain { get; private set; }
     public bool IsFinalized { get; private set; }
-    
+
     private readonly List<Vote> _votes = new();
     public IReadOnlyCollection<Vote> Votes => _votes.AsReadOnly();
 

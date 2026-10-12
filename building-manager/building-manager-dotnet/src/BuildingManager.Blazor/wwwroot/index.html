@@ -18,8 +18,6 @@
     <script src="_framework/blazor.webassembly.js"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script>
-        // Called from Blazor to save a JWT-protected API download to a file
-        // (a plain link would not carry the Authorization header).
         window.saveFile = function (fileName, contentType, base64) {
             const link = document.createElement('a');
             link.href = 'data:' + contentType + ';base64,' + base64;

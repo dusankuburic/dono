@@ -15,10 +15,10 @@ public class Assembly : BaseEntity
     public DateTime? NoticeSentAt { get; private set; }
     public DateTime? StartedAt { get; private set; }
     public DateTime? CompletedAt { get; private set; }
-    
+
     private readonly List<AgendaItem> _agendaItems = new();
     public IReadOnlyCollection<AgendaItem> AgendaItems => _agendaItems.AsReadOnly();
-    
+
     private readonly List<Attendance> _attendances = new();
     public IReadOnlyCollection<Attendance> Attendances => _attendances.AsReadOnly();
 
@@ -114,12 +114,12 @@ public class Assembly : BaseEntity
     {
         CompletedAt = DateTime.UtcNow;
         Status = AssemblyStatus.Completed;
-        
+
         foreach (var attendance in _attendances)
         {
             attendance.MarkAttended();
         }
-        
+
         MarkAsUpdated();
     }
 

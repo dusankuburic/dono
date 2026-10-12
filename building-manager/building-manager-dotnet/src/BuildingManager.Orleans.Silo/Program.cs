@@ -9,8 +9,6 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Console sink comes from appsettings.json (Serilog:WriteTo) — do not add a
-// second one here or every line is logged twice.
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
@@ -23,9 +21,6 @@ var gatewayPort = builder.Configuration.GetValue<int>("Orleans:GatewayPort", 300
 var dashboardPort = builder.Configuration.GetValue<int>("Orleans:DashboardPort", 8081);
 var httpPort = builder.Configuration.GetValue<int>("Orleans:HttpPort", 8080);
 
-// Kestrel hosts the silo and gateway sockets (Orleans co-hosting pattern).
-// The dashboard hosts itself on its own port, and httpPort is the host's own
-// HTTP endpoint (health checks) — the Orleans sockets speak their own protocol.
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.ListenAnyIP(siloPort);
@@ -66,9 +61,7 @@ builder.Host.UseOrleans(silo =>
             options.ConnectionString = connectionString;
             options.Invariant = "Npgsql";
         })
-        // Scheduled background work (the scheduler grain's reminders): the
-        // reminder table uses the same database, so schedules survive restarts
-        // (the reminders table comes with the standard Orleans SQL scripts).
+
         .AddReminders()
         .UseAdoNetReminderService(options =>
         {
@@ -82,8 +75,6 @@ builder.Host.UseOrleans(silo =>
             options.Port = dashboardPort;
         });
 
-    // The storage database is the silo's one real dependency: without it,
-    // clustering, grain state and reminders all stop working.
     silo.Services.AddHealthChecks()
         .AddNpgSql(connectionString, name: "orleans-storage", tags: new[] { "ready" });
 });

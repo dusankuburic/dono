@@ -3,15 +3,9 @@ using System.Net.Http.Json;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>Turns API error responses into exceptions with a message fit to show the user.</summary>
 public static class ApiErrors
 {
-    /// <summary>
-    /// Throws InvalidOperationException on a non-success response, using the
-    /// API's ProblemDetails detail (business rule messages), the first
-    /// validation error, or the fallback.
-    /// </summary>
-    public static async Task EnsureSuccessAsync(HttpResponseMessage response, string fallbackMessage)
+        public static async Task EnsureSuccessAsync(HttpResponseMessage response, string fallbackMessage)
     {
         if (response.IsSuccessStatusCode)
         {
@@ -33,7 +27,7 @@ public static class ApiErrors
         }
         catch
         {
-            // Not a ProblemDetails body; use the fallback message.
+
         }
 
         var validationError = problem?.Errors?.Values.SelectMany(e => e).FirstOrDefault();

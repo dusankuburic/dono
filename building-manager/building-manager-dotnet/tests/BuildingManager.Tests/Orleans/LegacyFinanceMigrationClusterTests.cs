@@ -12,11 +12,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// Buildings persisted before the finance split kept payments and expenses in
-/// their own state. Activation must move them into the per-month finance
-/// grains rather than silently dropping them.
-/// </summary>
 public class LegacyFinanceMigrationClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -53,8 +48,6 @@ public class LegacyFinanceMigrationClusterTests : IClassFixture<ClusterFixture>
             Category = ExpenseCategory.Cleaning, Description = "Stairwell cleaning"
         };
 
-        // Write the pre-split state straight into the silo's storage, as an
-        // older deployment would have left it, before the grain first activates.
         var grain = _fixture.Cluster.GrainFactory.GetGrain<IBuildingGrain>(buildingId);
         var grainId = grain.GetGrainId();
         var storage = ((InProcessSiloHandle)_fixture.Cluster.Primary).SiloHost.Services

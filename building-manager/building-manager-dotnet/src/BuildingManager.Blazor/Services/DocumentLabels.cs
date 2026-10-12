@@ -3,7 +3,6 @@ using MudBlazor;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>Display text, icons and size formatting for building documents.</summary>
 public static class DocumentLabels
 {
     public static (string Text, string Icon) Folder(DocumentFolder folder) => folder switch

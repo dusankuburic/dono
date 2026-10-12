@@ -4,10 +4,6 @@ using Orleans.Runtime;
 
 namespace BuildingManager.Orleans.Grains;
 
-/// <summary>
-/// Per-token session grain (key = JWT jti). Terminated or expired sessions
-/// fail validation, which is how logout revokes tokens before their expiry.
-/// </summary>
 public class UserSessionGrain : Grain, IUserSessionGrain
 {
     private readonly IPersistentState<UserSessionState> _state;
@@ -103,8 +99,6 @@ public class UserSessionGrain : Grain, IUserSessionGrain
         if (_state.State.Session is null)
             throw new KeyNotFoundException("Session has not been started.");
 
-        // Must be persisted: the grain is deactivated when idle, and a hash
-        // kept only in memory would make the refresh token useless afterwards.
         _state.State.RefreshTokenHash = refreshTokenHash;
         await _state.WriteStateAsync();
     }
@@ -118,7 +112,6 @@ public class UserSessionGrain : Grain, IUserSessionGrain
             return false;
         }
 
-        // Constant-time compare: both sides are fixed-length SHA-256 hex strings.
         var stored = _state.State.RefreshTokenHash;
         if (string.IsNullOrEmpty(stored)
             || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(

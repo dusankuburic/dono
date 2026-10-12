@@ -6,11 +6,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// Document records on the building grain: validation, the 1 GB per-building
-/// quota and removal. The file bytes live in blob storage and are covered by
-/// the API layer; these tests exercise the metadata only.
-/// </summary>
 public class DocumentClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -95,7 +90,6 @@ public class DocumentClusterTests : IClassFixture<ClusterFixture>
         var grain = await Building();
         var max = BuildingDocumentLimits.MaxDocumentSizeBytes;
 
-        // Exactly this many maximum-size files fit under the quota.
         var count = (int)(BuildingDocumentLimits.BuildingQuotaBytes / max);
         for (var i = 0; i < count; i++)
         {
@@ -105,7 +99,6 @@ public class DocumentClusterTests : IClassFixture<ClusterFixture>
         var over = () => grain.AddDocumentAsync(Doc("one-too-many.pdf", max));
         await over.Should().ThrowAsync<InvalidOperationException>();
 
-        // Freeing space lets the same upload through.
         await grain.RemoveDocumentAsync((await grain.GetDocumentsAsync()).First().Id);
         await grain.AddDocumentAsync(Doc("one-more.pdf", max));
         (await grain.GetDocumentsAsync()).Should().HaveCount(count);

@@ -4,10 +4,6 @@ using Orleans;
 
 namespace BuildingManager.Api.Services;
 
-/// <summary>
-/// Healthy when the API can reach the Orleans cluster and a grain answers.
-/// This is the API's only dependency: it owns no database itself.
-/// </summary>
 public class OrleansClusterHealthCheck : IHealthCheck
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(3);
@@ -27,7 +23,6 @@ public class OrleansClusterHealthCheck : IHealthCheck
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(Timeout);
 
-            // A cheap read-only call through the real serialization pipeline.
             await _grainFactory.GetGrain<IBuildingRegistryGrain>("global").GetAllAsync();
             return HealthCheckResult.Healthy("Orleans cluster reachable");
         }

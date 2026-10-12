@@ -5,10 +5,6 @@ using Orleans.Runtime;
 
 namespace BuildingManager.Orleans.Grains;
 
-/// <summary>
-/// Per-user account grain keyed by normalized email. Password hashes are
-/// stored; plaintext passwords never touch persisted state.
-/// </summary>
 public class UserGrain : Grain, IUserGrain
 {
     private const int MinimumPasswordLength = 8;
@@ -46,7 +42,7 @@ public class UserGrain : Grain, IUserGrain
 
     public async Task<bool> ValidatePasswordAsync(string password)
     {
-        // Unknown account and wrong password are indistinguishable to callers.
+
         if (!PasswordHasher.Verify(password, _state.State.PasswordHash))
         {
             return false;
@@ -87,8 +83,6 @@ public class UserGrain : Grain, IUserGrain
             await _state.WriteStateAsync();
         }
 
-        // Always (idempotently) update the index, so retrying a grant whose
-        // index write failed repairs it.
         await GrainFactory.GetGrain<IBuildingAccessGrain>(buildingId)
             .AddMemberAsync(this.GetPrimaryKeyString());
     }
@@ -147,7 +141,6 @@ public class UserGrain : Grain, IUserGrain
         _state.State.PasswordResetExpiresAt = null;
         await _state.WriteStateAsync();
 
-        // A reset password must invalidate every device logged in before it.
         await TerminateAllSessionsAsync();
         return true;
     }
@@ -164,14 +157,11 @@ public class UserGrain : Grain, IUserGrain
             throw new ArgumentException($"Password must be at least {MinimumPasswordLength} characters", nameof(newPassword));
 
         _state.State.PasswordHash = PasswordHasher.Hash(newPassword);
-        // A reset code requested before the change must not be able to
-        // override the password the user just chose.
+
         _state.State.PasswordResetTokenHash = null;
         _state.State.PasswordResetExpiresAt = null;
         await _state.WriteStateAsync();
 
-        // Includes the session that requested the change: clients redirect to
-        // the login page afterwards.
         await TerminateAllSessionsAsync();
     }
 
@@ -183,9 +173,6 @@ public class UserGrain : Grain, IUserGrain
         if (_state.State.ActiveSessionIds.Contains(sessionId))
             return;
 
-        // Cap the list so it cannot bloat the state. Evicted sessions must be
-        // terminated, not just forgotten: an untracked session would survive
-        // a password reset, and refreshing keeps a session alive indefinitely.
         if (_state.State.ActiveSessionIds.Count >= MaxTrackedSessions)
         {
             var evictCount = _state.State.ActiveSessionIds.Count - MaxTrackedSessions + 1;

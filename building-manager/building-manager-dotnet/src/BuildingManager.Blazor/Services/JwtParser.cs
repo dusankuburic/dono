@@ -3,10 +3,6 @@ using System.Text.Json;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>
-/// Decodes a JWT payload into claims for UI purposes (the API still validates
-/// the signature on every call; this is only for driving the client UI).
-/// </summary>
 public static class JwtParser
 {
     public static IReadOnlyList<Claim> ParseClaims(string jwt)
@@ -35,7 +31,7 @@ public static class JwtParser
                     claims.Add(new Claim(property.Name, property.Value.GetString() ?? string.Empty));
                     break;
                 case JsonValueKind.Number:
-                    // Keep raw text (e.g. exp as unix seconds) without locale formatting.
+
                     claims.Add(new Claim(property.Name, property.Value.GetRawText()));
                     break;
                 case JsonValueKind.Array:

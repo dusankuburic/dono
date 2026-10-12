@@ -3,7 +3,6 @@ using MudBlazor;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>Display text and colours for assembly enums, shared by the assembly pages and minutes.</summary>
 public static class AssemblyLabels
 {
     public static string Status(AssemblyStatus status) => status switch
@@ -53,8 +52,7 @@ public static class AssemblyLabels
         _ => choice.ToString()
     };
 
-    /// <summary>Informational items are "noted" rather than passed or failed.</summary>
-    public static string Result(VoteResult result, bool requiresVote) => (result, requiresVote) switch
+        public static string Result(VoteResult result, bool requiresVote) => (result, requiresVote) switch
     {
         (VoteResult.Pending, _) => "Pending",
         (_, false) => "Noted",

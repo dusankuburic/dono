@@ -6,11 +6,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// Owners' assemblies on the real grains: scheduling and notice rules,
-/// attendance-based quorum from unit shares, voting thresholds, completion
-/// and the repeated session after a first session without quorum.
-/// </summary>
 public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -22,8 +17,7 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
 
     private IGrainFactory GrainFactory => _fixture.Cluster.GrainFactory;
 
-    /// <summary>A building whose three units hold 40, 35 and 25 percent.</summary>
-    private async Task<string> BuildingWithUnits()
+        private async Task<string> BuildingWithUnits()
     {
         var buildingId = $"assembly-bldg-{Guid.NewGuid():N}";
         var building = GrainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -55,15 +49,10 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
             : new List<AgendaItemDraft> { new() { Title = "Facade repair", VotingType = VotingType.Simple } }
     };
 
-    /// <summary>
-    /// A meeting in half an hour (short notice confirmed), so it can be started
-    /// now: a meeting cannot open more than an hour before its announced time.
-    /// </summary>
-    private static ScheduleAssemblyRequest SoonRequest(params AgendaItemDraft[] agenda) =>
+        private static ScheduleAssemblyRequest SoonRequest(params AgendaItemDraft[] agenda) =>
         Request(agenda) with { Date = DateTime.UtcNow.AddMinutes(30), AllowShortNotice = true };
 
-    /// <summary>Scheduled, notice sent and started: ready for attendance.</summary>
-    private async Task<(IAssemblyGrain Grain, AssemblyDetails Details)> StartedAssembly(
+        private async Task<(IAssemblyGrain Grain, AssemblyDetails Details)> StartedAssembly(
         string buildingId, params AgendaItemDraft[] agenda)
     {
         var grain = Assembly(buildingId);
@@ -113,7 +102,6 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
         started.EligibleVotes.Should().Be(100m);
         var (budget, roof) = (started.Agenda[0].Id, started.Agenda[1].Id);
 
-        // 40 in person + 25 by proxy = 65% present: quorum for a first session.
         await grain.RecordAttendanceAsync(InPerson("1"));
         await grain.RecordAttendanceAsync(new AttendanceDraft
         {
@@ -125,7 +113,6 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
         await grain.RecordVoteAsync(roof, "1", VoteChoice.For);
         await grain.RecordVoteAsync(roof, "3", VoteChoice.Abstain);
 
-        // 40 of 65 is a simple majority but short of two thirds.
         (await grain.FinalizeAgendaItemAsync(budget)).Result.Should().Be(VoteResult.Passed);
         var roofResult = await grain.FinalizeAgendaItemAsync(roof);
         roofResult.Result.Should().Be(VoteResult.Failed);
@@ -155,7 +142,6 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
         var (first, started) = await StartedAssembly(buildingId);
         var item = started.Agenda[0].Id;
 
-        // 40% present: below the 51% a first session needs.
         await first.RecordAttendanceAsync(InPerson("1"));
         var vote = () => first.RecordVoteAsync(item, "1", VoteChoice.For);
         await vote.Should().ThrowAsync<InvalidOperationException>().WithMessage("Quorum not reached*");
@@ -165,7 +151,6 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
         firstDetails.QuorumAchieved.Should().BeFalse();
         firstDetails.Agenda[0].Result.Should().Be(VoteResult.Pending, "no decision without quorum");
 
-        // The repeated session needs only one third, so the same 40% suffices.
         var repeated = Assembly(buildingId);
         await repeated.ScheduleAsync(SoonRequest() with
         {
@@ -204,7 +189,7 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
     public async Task The_Meeting_Cannot_Start_Long_Before_The_Announced_Time()
     {
         var grain = Assembly(await BuildingWithUnits());
-        await grain.ScheduleAsync(Request()); // a week from now
+        await grain.ScheduleAsync(Request());
         await grain.MarkNoticeSentAsync(physicallyPosted: true);
 
         var startNow = () => grain.StartAsync();
@@ -227,7 +212,6 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
         var changeAgenda = () => grain.AddAgendaItemAsync(new AgendaItemDraft { Title = "Late item" });
         await changeAgenda.Should().ThrowAsync<InvalidOperationException>("the agenda is fixed once notice is sent");
 
-        // Posting can be confirmed after the notice itself.
         await grain.MarkNoticeSentAsync(physicallyPosted: true);
         (await grain.GetAsync()).PhysicallyPostedAt.Should().NotBeNull();
 
@@ -246,7 +230,7 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
         await absentVoter.Should().ThrowAsync<InvalidOperationException>("unit 3 is not present");
 
         await grain.RecordVoteAsync(item, "1", VoteChoice.Against);
-        await grain.RecordVoteAsync(item, "1", VoteChoice.For); // recast replaces
+        await grain.RecordVoteAsync(item, "1", VoteChoice.For);
         (await grain.GetAsync()).Agenda[0].Votes.Should().ContainSingle(v => v.Choice == VoteChoice.For);
 
         var completeUndecided = () => grain.CompleteAsync();
@@ -255,7 +239,7 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
         await grain.FinalizeAgendaItemAsync(item);
         var removeVoter = () => grain.RemoveAttendanceAsync("1");
         await removeVoter.Should().ThrowAsync<InvalidOperationException>("its vote decided an item");
-        await grain.RemoveAttendanceAsync("2"); // did not vote: can be corrected
+        await grain.RemoveAttendanceAsync("2");
 
         await grain.CompleteAsync();
         var cancelCompleted = () => grain.CancelAsync();
@@ -270,7 +254,6 @@ public class AssemblyGrainClusterTests : IClassFixture<ClusterFixture>
         var buildingId = await BuildingWithUnits();
         var (grain, started) = await StartedAssembly(buildingId);
 
-        // A unit added after the start does not change who may vote.
         await GrainFactory.GetGrain<IBuildingGrain>(buildingId).AddOrUpdateUnitAsync(new UnitInfo
         {
             Id = Guid.NewGuid(), Number = "4", Floor = 2, AreaM2 = 50, OwnershipShare = 10m,

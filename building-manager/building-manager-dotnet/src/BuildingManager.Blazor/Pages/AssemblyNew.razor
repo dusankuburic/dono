@@ -102,7 +102,6 @@ else
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
 
-    /// <summary>The meeting time in the browser's local time zone.</summary>
     private DateTime? MeetingTime => _date is { } date && _time is { } time ? date.Date + time : null;
 
     protected override async Task OnInitializedAsync()

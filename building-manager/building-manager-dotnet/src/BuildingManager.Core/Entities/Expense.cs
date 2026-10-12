@@ -26,7 +26,7 @@ public class Expense : BaseEntity
     {
         if (amount <= 0)
             throw new ArgumentException("Amount must be positive", nameof(amount));
-        
+
         if (string.IsNullOrWhiteSpace(description))
             throw new ArgumentException("Description is required", nameof(description));
 

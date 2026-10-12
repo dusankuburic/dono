@@ -3,12 +3,6 @@ using Orleans;
 
 namespace BuildingManager.Api.Services;
 
-/// <summary>
-/// Seeds an admin account at startup from configuration (Auth:AdminEmail /
-/// Auth:AdminPassword, optional Auth:AdminDisplayName). Skips silently when
-/// not configured or when the account already exists; retries briefly while
-/// the Orleans client is still connecting.
-/// </summary>
 public class AdminSeeder : IHostedService
 {
     private const int MaxAttempts = 5;
@@ -27,7 +21,7 @@ public class AdminSeeder : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Do not block startup; the silo may still be connecting.
+
         _ = Task.Run(() => SeedAsync(cancellationToken), cancellationToken);
         return Task.CompletedTask;
     }
@@ -40,7 +34,7 @@ public class AdminSeeder : IHostedService
         var password = _configuration["Auth:AdminPassword"];
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
         {
-            return; // admin seeding not configured
+            return;
         }
 
         email = email.Trim().ToLowerInvariant();
@@ -62,9 +56,7 @@ public class AdminSeeder : IHostedService
             }
             catch (InvalidOperationException)
             {
-                // Already registered. If someone self-registered this email
-                // first, it is not an admin; surface that instead of silently
-                // leaving the deployment without an admin.
+
                 await WarnIfNotAdminAsync(email);
                 return;
             }

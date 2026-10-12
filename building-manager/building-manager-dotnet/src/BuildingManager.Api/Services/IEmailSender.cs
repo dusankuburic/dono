@@ -1,10 +1,5 @@
 namespace BuildingManager.Api.Services;
 
-/// <summary>
-/// Outbound email abstraction. The dev implementation logs instead of sending;
-/// production registers AcsEmailSender (or any SMTP/SendGrid sender) when
-/// Email:ConnectionString and Email:SenderAddress are configured.
-/// </summary>
 public interface IEmailSender
 {
     Task SendAsync(string toEmail, string subject, string plainBody, string? htmlBody = null);

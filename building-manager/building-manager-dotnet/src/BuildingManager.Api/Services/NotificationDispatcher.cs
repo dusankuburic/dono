@@ -4,19 +4,12 @@ using Orleans;
 
 namespace BuildingManager.Api.Services;
 
-/// <summary>
-/// Creates in-app notifications. Notification grains are keyed by email —
-/// the same key as user accounts and building membership — so no user-id
-/// lookups are needed.
-/// </summary>
 public interface INotificationDispatcher
 {
-    /// <summary>Notifies every member of the building, except the acting user (by email).</summary>
-    Task NotifyBuildingMembersAsync(string buildingId, NotificationType type,
+        Task NotifyBuildingMembersAsync(string buildingId, NotificationType type,
         string title, string? body, string? link, string? actorEmail);
 
-    /// <summary>Notifies the account with this email, if one exists (and is not the actor).</summary>
-    Task NotifyEmailAsync(string email, NotificationType type,
+        Task NotifyEmailAsync(string email, NotificationType type,
         string title, string? body, string? link, string buildingId = "", string? actorEmail = null);
 }
 

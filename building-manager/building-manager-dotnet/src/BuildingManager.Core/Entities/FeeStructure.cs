@@ -13,7 +13,7 @@ public class FeeStructure : BaseEntity
 
     private FeeStructure() { }
 
-    public static FeeStructure Create(Guid buildingId, string name, decimal amountPerM2, 
+    public static FeeStructure Create(Guid buildingId, string name, decimal amountPerM2,
         DateTime effectiveFrom, decimal? fixedAmount = null, string? description = null)
     {
         if (string.IsNullOrWhiteSpace(name))

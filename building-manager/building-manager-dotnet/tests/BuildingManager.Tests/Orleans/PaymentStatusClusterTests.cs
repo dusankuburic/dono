@@ -6,10 +6,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// Per-unit fee status (UC-008): paid / one month behind / two or more
-/// months behind, judged by billing month against the fee in force then.
-/// </summary>
 public class PaymentStatusClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -22,8 +18,7 @@ public class PaymentStatusClusterTests : IClassFixture<ClusterFixture>
     private static readonly DateTime ThisMonth = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime LastMonth = ThisMonth.AddMonths(-1);
 
-    /// <summary>Units of 100, 50 and 80 m².</summary>
-    private async Task<IBuildingGrain> Building()
+        private async Task<IBuildingGrain> Building()
     {
         var grain = _fixture.Cluster.GrainFactory.GetGrain<IBuildingGrain>($"fees-{Guid.NewGuid():N}");
         await grain.InitializeAsync(new BuildingInfo
@@ -42,8 +37,7 @@ public class PaymentStatusClusterTests : IClassFixture<ClusterFixture>
         return grain;
     }
 
-    /// <summary>Fee = fixed + per m² × area, in force from <paramref name="from"/>.</summary>
-    private static Task SetFee(IBuildingGrain grain, decimal fixedAmount, decimal perM2, DateTime from) =>
+        private static Task SetFee(IBuildingGrain grain, decimal fixedAmount, decimal perM2, DateTime from) =>
         grain.SetFeeStructureAsync(new FeeStructureInfo
         {
             Name = $"{fixedAmount} + {perM2}/m²", FixedAmount = fixedAmount, AmountPerM2 = perM2, EffectiveFrom = from
@@ -60,14 +54,13 @@ public class PaymentStatusClusterTests : IClassFixture<ClusterFixture>
     public async Task Units_Are_Paid_Behind_Or_Overdue()
     {
         var grain = await Building();
-        // 200 + 10/m² from last month: due 1200, 700 and 1000.
+
         await SetFee(grain, 200m, 10m, LastMonth);
         var now = DateTime.UtcNow;
 
-        await Pay(grain, "1", 1200m, ThisMonth, now);              // paid in full
-        await Pay(grain, "2", 700m, LastMonth, LastMonth.AddDays(5)); // last month paid...
-        await Pay(grain, "2", 300m, ThisMonth, now);                //   ...this month only partly
-        // Unit 3 has paid nothing for either month.
+        await Pay(grain, "1", 1200m, ThisMonth, now);
+        await Pay(grain, "2", 700m, LastMonth, LastMonth.AddDays(5));
+        await Pay(grain, "2", 300m, ThisMonth, now);
 
         var status = await grain.GetPaymentStatusAsync(ThisMonth.Year, ThisMonth.Month);
 
@@ -92,8 +85,8 @@ public class PaymentStatusClusterTests : IClassFixture<ClusterFixture>
     public async Task Each_Month_Is_Judged_By_The_Fee_In_Force_Then()
     {
         var grain = await Building();
-        await SetFee(grain, 0m, 10m, LastMonth);          // 10/m² last month
-        await SetFee(grain, 0m, 20m, DateTime.UtcNow);   // raised to 20/m² this month
+        await SetFee(grain, 0m, 10m, LastMonth);
+        await SetFee(grain, 0m, 20m, DateTime.UtcNow);
 
         var last = await grain.GetPaymentStatusAsync(LastMonth.Year, LastMonth.Month);
         var current = await grain.GetPaymentStatusAsync(ThisMonth.Year, ThisMonth.Month);

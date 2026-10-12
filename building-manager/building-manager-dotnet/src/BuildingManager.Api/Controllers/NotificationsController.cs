@@ -5,9 +5,6 @@ using Orleans;
 
 namespace BuildingManager.Api.Controllers;
 
-/// <summary>
-/// The signed-in user's in-app notifications (the bell in the header).
-/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/notifications")]
@@ -42,8 +39,7 @@ public class NotificationsController : ControllerBase
         return Ok();
     }
 
-    /// <summary>The notification grain is keyed by the caller's email, like the user account.</summary>
-    private INotificationGrain Grain()
+        private INotificationGrain Grain()
     {
         var email = User.FindFirst("email")?.Value?.Trim().ToLowerInvariant();
         if (string.IsNullOrEmpty(email))

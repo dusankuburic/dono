@@ -6,11 +6,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// Per-month finance grains: month isolation, totals, and unit payment
-/// aggregation. Keys use the same "{buildingId}|{yyyy-MM}" format as
-/// BuildingGrain.
-/// </summary>
 public class FinanceGrainClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -22,7 +17,6 @@ public class FinanceGrainClusterTests : IClassFixture<ClusterFixture>
 
     private IGrainFactory GrainFactory => _fixture.Cluster.GrainFactory;
 
-    // Unique per test: grain state persists in the shared cluster fixture.
     private string NewBuildingKey() => $"finance-test-{Guid.NewGuid():N}";
 
     private IFinanceGrain GetFinanceGrain(string buildingKey, DateTime month) =>
@@ -161,11 +155,9 @@ public class BuildingFinanceSummaryClusterTests : IClassFixture<ClusterFixture>
             PaymentDate = twoMonthsAgo, Month = twoMonthsAgo.Month, Year = twoMonthsAgo.Year
         });
 
-        // Default 12-month window includes both months.
         var yearly = await grain.GetFinancialSummaryAsync();
         yearly.TotalIncome.Should().Be(3000);
 
-        // A range covering only the current month excludes the older payment.
         var monthStart = new DateTime(now.Year, now.Month, 1);
         var currentMonthOnly = await grain.GetFinancialSummaryAsync(
             from: monthStart, to: monthStart.AddMonths(1).AddSeconds(-1));
@@ -182,7 +174,6 @@ public class BuildingFinanceSummaryClusterTests : IClassFixture<ClusterFixture>
             City = "Beograd", TotalFloors = 1, TotalAreaM2 = 100
         });
 
-        // An announcement over a year old (readable: no expiry set).
         await grain.CreateAnnouncementAsync(new AnnouncementInfo
         {
             Id = Guid.NewGuid(),
@@ -193,7 +184,6 @@ public class BuildingFinanceSummaryClusterTests : IClassFixture<ClusterFixture>
             CreatedAt = DateTime.UtcNow.AddYears(-2)
         });
 
-        // Creating a fresh announcement triggers pruning of the stale one.
         var freshId = Guid.NewGuid();
         await grain.CreateAnnouncementAsync(new AnnouncementInfo
         {

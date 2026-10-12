@@ -4,10 +4,6 @@ using Orleans.Runtime;
 
 namespace BuildingManager.Orleans.Grains;
 
-/// <summary>
-/// Per-building member index (key = building id). Written only by UserGrain;
-/// both operations are idempotent so a retried grant/revoke repairs it.
-/// </summary>
 public class BuildingAccessGrain : Grain, IBuildingAccessGrain
 {
     private readonly IPersistentState<BuildingAccessState> _state;

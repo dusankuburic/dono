@@ -6,23 +6,18 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>Fee status, payments and expenses. Failures throw InvalidOperationException with the API's message.</summary>
 public interface IFinanceService
 {
-    /// <summary>Fee status per unit for a billing month; owners get only their own units.</summary>
-    Task<MonthPaymentStatus> GetPaymentStatusAsync(string buildingId, int year, int month);
+        Task<MonthPaymentStatus> GetPaymentStatusAsync(string buildingId, int year, int month);
 
-    /// <summary>Payments received and expenses incurred in a month (managers only).</summary>
-    Task<MonthLedger> GetLedgerAsync(string buildingId, int year, int month);
+        Task<MonthLedger> GetLedgerAsync(string buildingId, int year, int month);
 
-    /// <summary>A unit's payments of the last 12 months, newest first.</summary>
-    Task<List<PaymentInfo>> GetUnitPaymentsAsync(string buildingId, string unitNumber);
+        Task<List<PaymentInfo>> GetUnitPaymentsAsync(string buildingId, string unitNumber);
 
     Task RecordPaymentAsync(string buildingId, PaymentDraft payment);
     Task RecordExpenseAsync(string buildingId, ExpenseDraft expense);
 }
 
-/// <summary>A payment as entered by the manager. The id makes a retried submit count once.</summary>
 public record PaymentDraft(
     Guid Id, string UnitNumber, decimal Amount, int Year, int Month, DateTime ReceivedAtUtc,
     PaymentMethod? Method, string? Reference, string? Notes);

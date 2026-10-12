@@ -3,7 +3,6 @@ using MudBlazor;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>Display icons and colours for notification types.</summary>
 public static class NotificationLabels
 {
     public static (string Icon, Color Color) Icon(NotificationType type) => type switch

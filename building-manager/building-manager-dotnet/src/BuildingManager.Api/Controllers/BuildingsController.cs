@@ -27,10 +27,7 @@ public class BuildingsController : ControllerBase
         _financeReports = financeReports;
     }
 
-    /// <summary>
-    /// Lists buildings the caller can access (all of them for admins).
-    /// </summary>
-    [HttpGet]
+        [HttpGet]
     public async Task<ActionResult<IEnumerable<BuildingSummary>>> GetAllBuildings()
     {
         var registry = _grainFactory.GetGrain<IBuildingRegistryGrain>("global");
@@ -60,8 +57,7 @@ public class BuildingsController : ControllerBase
             }
             catch (KeyNotFoundException)
             {
-                // Registered building without persisted state (e.g. wiped
-                // storage): skip it rather than failing the whole listing.
+
             }
         }
 
@@ -97,7 +93,6 @@ public class BuildingsController : ControllerBase
         };
         await grain.InitializeAsync(info);
 
-        // The manager who creates the building keeps access to it.
         var email = User.FindFirst("email")?.Value;
         if (!string.IsNullOrEmpty(email))
         {
@@ -223,7 +218,6 @@ public class BuildingsController : ControllerBase
         return Ok(workOrders);
     }
 
-    // Residents may report problems; only management updates status (below).
     [HttpPost("{buildingId}/workorders")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<WorkOrderInfo>> CreateWorkOrder(string buildingId, [FromBody] CreateWorkOrderRequest request)
@@ -246,7 +240,6 @@ public class BuildingsController : ControllerBase
             ?? throw new KeyNotFoundException($"Work order '{workOrderId}' not found");
         var result = await grain.UpdateWorkOrderStatusAsync(workOrderId, request.Status, request.Notes);
 
-        // UC-004: the resident is told when the status of their request changes.
         if (before.Status != result.Status)
         {
             var reporter = (await grain.GetResidentsAsync())
@@ -288,14 +281,12 @@ public class BuildingsController : ControllerBase
             ScheduledFor = request.ScheduledFor,
             ExpiresAt = request.ExpiresAt,
             IsPinned = request.IsPinned,
-            // The author is whoever is signed in, never what the client claims.
+
             CreatedBy = Guid.TryParse(User.FindFirst("sub")?.Value, out var userId) ? userId : Guid.Empty,
             CreatedByName = User.FindFirst("name")?.Value
         };
         await grain.CreateAnnouncementAsync(announcement);
 
-        // UC-005: members are notified in-app when it reaches the feed (a
-        // scheduled announcement will be visible from the feed once due).
         if (announcement.ScheduledFor is not { } scheduledFor || scheduledFor <= DateTime.UtcNow)
         {
             await _notifications.NotifyBuildingMembersAsync(buildingId, NotificationType.Announcement,
@@ -306,15 +297,13 @@ public class BuildingsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, announcement);
     }
 
-    /// <summary>The first line or so of the message, enough to recognize it in the bell list.</summary>
-    private static string? Preview(string content)
+        private static string? Preview(string content)
     {
         var trimmed = content.Trim();
         return trimmed.Length <= 150 ? trimmed : trimmed[..147] + "…";
     }
 
-    /// <summary>All kept announcements, including scheduled, expired and archived ones.</summary>
-    [HttpGet("{buildingId}/announcements/history")]
+        [HttpGet("{buildingId}/announcements/history")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<AnnouncementInfo>>> GetAnnouncementHistory(string buildingId) =>
@@ -329,8 +318,7 @@ public class BuildingsController : ControllerBase
         return Ok();
     }
 
-    /// <summary>Removes the announcement from the residents' feed; it stays in the history.</summary>
-    [HttpPost("{buildingId}/announcements/{announcementId:guid}/archive")]
+        [HttpPost("{buildingId}/announcements/{announcementId:guid}/archive")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<IActionResult> ArchiveAnnouncement(string buildingId, Guid announcementId)
@@ -355,7 +343,7 @@ public class BuildingsController : ControllerBase
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
         var unitNumber = request.UnitNumber.Trim();
-        await grain.GetUnitAsync(unitNumber); // 404 for a unit the building doesn't have
+        await grain.GetUnitAsync(unitNumber);
 
         var payment = new PaymentInfo
         {
@@ -373,18 +361,12 @@ public class BuildingsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created);
     }
 
-    /// <summary>
-    /// Fee status of each unit for a billing month (default: this month).
-    /// Managers see every unit; other users only the units they are
-    /// registered at as residents (by their account email).
-    /// </summary>
-    [HttpGet("{buildingId}/finance/status")]
+        [HttpGet("{buildingId}/finance/status")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<MonthPaymentStatus>> GetPaymentStatus(string buildingId, [FromQuery] int? year, [FromQuery] int? month) =>
         Ok(await PaymentStatusForCallerAsync(buildingId, year, month));
 
-    /// <summary>The fee status as a printable PDF (owners get only their own units).</summary>
-    [HttpGet("{buildingId}/finance/status/pdf")]
+        [HttpGet("{buildingId}/finance/status/pdf")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<IActionResult> GetPaymentStatusPdf(string buildingId, [FromQuery] int? year, [FromQuery] int? month)
     {
@@ -393,8 +375,7 @@ public class BuildingsController : ControllerBase
             $"fee-status-{status.Year}-{status.Month:D2}.pdf");
     }
 
-    /// <summary>The fee status as an Excel sheet (owners get only their own units).</summary>
-    [HttpGet("{buildingId}/finance/status/xlsx")]
+        [HttpGet("{buildingId}/finance/status/xlsx")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<IActionResult> GetPaymentStatusExcel(string buildingId, [FromQuery] int? year, [FromQuery] int? month)
     {
@@ -424,8 +405,7 @@ public class BuildingsController : ControllerBase
         return (await PaymentStatusForCallerAsync(buildingId, year, month), await grain.GetSummaryAsync());
     }
 
-    /// <summary>Payments received and expenses incurred in a month (default: this month).</summary>
-    [HttpGet("{buildingId}/finance/ledger")]
+        [HttpGet("{buildingId}/finance/ledger")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<MonthLedger>> GetLedger(string buildingId, [FromQuery] int? year, [FromQuery] int? month)
@@ -435,8 +415,7 @@ public class BuildingsController : ControllerBase
             .GetFinanceLedgerAsync(year ?? now.Year, month ?? now.Month));
     }
 
-    /// <summary>A unit's payments of the last 12 months; owners only for their own units.</summary>
-    [HttpGet("{buildingId}/finance/payments")]
+        [HttpGet("{buildingId}/finance/payments")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<PaymentInfo>>> GetUnitPayments(string buildingId, [FromQuery, Required] string unit)
     {
@@ -483,8 +462,7 @@ public class BuildingsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created);
     }
 
-    /// <summary>Lists the accounts with access to this building (admins have implicit access and are not listed).</summary>
-    [HttpGet("{buildingId}/access")]
+        [HttpGet("{buildingId}/access")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<BuildingMember>>> GetAccess(string buildingId)
@@ -506,38 +484,29 @@ public class BuildingsController : ControllerBase
             }
             catch (KeyNotFoundException)
             {
-                // Index entry for an account that no longer exists: skip it.
+
             }
         }
 
         return Ok(members);
     }
 
-    /// <summary>Gives another registered user access to this building.</summary>
-    [HttpPut("{buildingId}/access/{email}")]
+        [HttpPut("{buildingId}/access/{email}")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<IActionResult> GrantAccess(string buildingId, string email)
     {
         var normalizedEmail = email.Trim().ToLowerInvariant();
         var userGrain = _grainFactory.GetGrain<IUserGrain>(normalizedEmail);
-        await userGrain.GetProfileAsync(); // 404 for unknown accounts
+        await userGrain.GetProfileAsync();
         await userGrain.GrantBuildingAccessAsync(buildingId);
         return Ok();
     }
 
-    /// <summary>
-    /// Client-supplied ids make payment/expense creation idempotent: finance
-    /// grains ignore a repeated id, so a retried request is recorded once.
-    /// </summary>
-    private static Guid IdOrNew(Guid? clientId) =>
+        private static Guid IdOrNew(Guid? clientId) =>
         clientId is { } id && id != Guid.Empty ? id : Guid.NewGuid();
 
-    /// <summary>
-    /// When a payment was received or an expense incurred: defaults to now,
-    /// may be backdated but not in the future (a day of slack for time zones).
-    /// </summary>
-    private static DateTime EntryDate(DateTime? requested, string what)
+        private static DateTime EntryDate(DateTime? requested, string what)
     {
         var now = DateTime.UtcNow;
         if (requested is not { } date)
@@ -553,8 +522,7 @@ public class BuildingsController : ControllerBase
 
     private bool IsManager() => AuthPolicies.ManageRoles.Any(User.IsInRole);
 
-    /// <summary>Units where the signed-in user is registered as a resident (matched by email).</summary>
-    private async Task<HashSet<string>> OwnUnitsAsync(string buildingId)
+        private async Task<HashSet<string>> OwnUnitsAsync(string buildingId)
     {
         var email = User.FindFirst("email")?.Value;
         if (string.IsNullOrEmpty(email))
@@ -567,8 +535,7 @@ public class BuildingsController : ControllerBase
             .ToHashSet();
     }
 
-    /// <summary>Removes a user's access to this building.</summary>
-    [HttpDelete("{buildingId}/access/{email}")]
+        [HttpDelete("{buildingId}/access/{email}")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<IActionResult> RevokeAccess(string buildingId, string email)
@@ -691,11 +658,9 @@ public record CreateAnnouncementRequest
 
     public AnnouncementType Type { get; init; } = AnnouncementType.General;
 
-    /// <summary>Publish later (UTC); omit to publish now.</summary>
-    public DateTime? ScheduledFor { get; init; }
+        public DateTime? ScheduledFor { get; init; }
 
-    /// <summary>Leaves the residents' feed at this time (UTC); omit to keep it.</summary>
-    public DateTime? ExpiresAt { get; init; }
+        public DateTime? ExpiresAt { get; init; }
 
     public bool IsPinned { get; init; }
 }
@@ -707,8 +672,7 @@ public record PinRequest
 
 public record PaymentInfoRequest
 {
-    /// <summary>Optional. Reuse the same id when retrying so the payment is recorded only once.</summary>
-    public Guid? Id { get; init; }
+        public Guid? Id { get; init; }
 
     [Required, MaxLength(20)]
     public string UnitNumber { get; init; } = "";
@@ -725,8 +689,7 @@ public record PaymentInfoRequest
     [MaxLength(100)]
     public string? Reference { get; init; }
 
-    /// <summary>When the money was received (UTC); defaults to now.</summary>
-    public DateTime? PaymentDate { get; init; }
+        public DateTime? PaymentDate { get; init; }
 
     public PaymentMethod? Method { get; init; }
 
@@ -736,8 +699,7 @@ public record PaymentInfoRequest
 
 public record ExpenseInfoRequest
 {
-    /// <summary>Optional. Reuse the same id when retrying so the expense is recorded only once.</summary>
-    public Guid? Id { get; init; }
+        public Guid? Id { get; init; }
 
     public ExpenseCategory Category { get; init; }
 
@@ -750,8 +712,7 @@ public record ExpenseInfoRequest
     [MaxLength(200)]
     public string? Vendor { get; init; }
 
-    /// <summary>When the expense was incurred (UTC); defaults to now.</summary>
-    public DateTime? ExpenseDate { get; init; }
+        public DateTime? ExpenseDate { get; init; }
 }
 
 public record FeeStructureRequest

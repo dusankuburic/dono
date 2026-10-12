@@ -3,11 +3,6 @@ using System.Text;
 
 namespace BuildingManager.Core.Security;
 
-/// <summary>
-/// PBKDF2-SHA256 password hashing using only BCL APIs, so it can run inside
-/// grains (no ASP.NET Core dependency). Stored format:
-/// PBKDF2-SHA256.{iterations}.{base64 salt}.{base64 key}
-/// </summary>
 public static class PasswordHasher
 {
     private const int SaltSizeBytes = 16;
@@ -53,11 +48,6 @@ public static class PasswordHasher
     }
 }
 
-/// <summary>
-/// SHA-256 hashing for opaque tokens (refresh tokens, password reset tokens).
-/// These tokens are high-entropy random values, so a fast hash is appropriate
-/// (unlike passwords, which use PasswordHasher's PBKDF2).
-/// </summary>
 public static class TokenHasher
 {
     public static string Hash(string token) =>

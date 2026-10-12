@@ -5,7 +5,6 @@ using MudBlazor;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>Display text and colours for finance and announcement enums.</summary>
 public static class FinanceLabels
 {
     public static string Money(decimal amount) => $"{amount:N2} RSD";
@@ -13,8 +12,7 @@ public static class FinanceLabels
     public static string MonthName(int year, int month) =>
         new DateTime(year, month, 1).ToString("MMMM yyyy", CultureInfo.InvariantCulture);
 
-    /// <summary>UC-008 colours: green paid, yellow one month behind, red two or more.</summary>
-    public static (string Text, Color Color) Standing(PaymentStanding standing) => standing switch
+        public static (string Text, Color Color) Standing(PaymentStanding standing) => standing switch
     {
         PaymentStanding.Paid => ("Paid", Color.Success),
         PaymentStanding.OneMonthBehind => ("Not paid this month", Color.Warning),

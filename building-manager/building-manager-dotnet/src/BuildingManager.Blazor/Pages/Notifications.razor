@@ -81,7 +81,6 @@ else
 
     private static string Local(DateTime utc) => utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
 
-    /// <summary>Opens the related page and marks the notification as read.</summary>
     private async Task Open(NotificationInfo notification)
     {
         if (!notification.IsRead)

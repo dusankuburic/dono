@@ -19,13 +19,13 @@ public class Payment : BaseEntity
 
     private Payment() { }
 
-    public static Payment Create(Guid buildingId, string unitNumber, decimal amount, 
+    public static Payment Create(Guid buildingId, string unitNumber, decimal amount,
         DateTime paymentDate, Guid recordedBy, PaymentMethod method = PaymentMethod.BankTransfer,
         Guid? residentId = null, string? reference = null, int? month = null, int? year = null)
     {
         if (string.IsNullOrWhiteSpace(unitNumber))
             throw new ArgumentException("Unit number is required", nameof(unitNumber));
-        
+
         if (amount <= 0)
             throw new ArgumentException("Amount must be positive", nameof(amount));
 

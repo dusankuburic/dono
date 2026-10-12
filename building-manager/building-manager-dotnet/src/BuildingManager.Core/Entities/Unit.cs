@@ -12,7 +12,7 @@ public class Unit : BaseEntity
     public decimal OwnershipShare { get; private set; }
     public UnitType Type { get; private set; } = UnitType.Apartment;
     public UnitStatus Status { get; private set; } = UnitStatus.Vacant;
-    
+
     private readonly List<Resident> _residents = new();
     public IReadOnlyCollection<Resident> Residents => _residents.AsReadOnly();
 
@@ -22,10 +22,10 @@ public class Unit : BaseEntity
     {
         if (string.IsNullOrWhiteSpace(number))
             throw new ArgumentException("Unit number is required", nameof(number));
-        
+
         if (areaM2 <= 0)
             throw new ArgumentException("Area must be positive", nameof(areaM2));
-        
+
         if (ownershipShare <= 0 || ownershipShare > 100)
             throw new ArgumentException("Ownership share must be between 0 and 100", nameof(ownershipShare));
 

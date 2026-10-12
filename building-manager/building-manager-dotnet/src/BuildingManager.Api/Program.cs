@@ -18,9 +18,6 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Azure Key Vault for production secrets (Jwt--Secret, Auth--AdminPassword,
-// ConnectionStrings--..., Email/Sms ...). The managed identity of the host
-// authenticates; locally this stays unset and user-secrets/env vars apply.
 var keyVaultUri = builder.Configuration["KeyVault:VaultUri"];
 if (!string.IsNullOrWhiteSpace(keyVaultUri))
 {
@@ -29,8 +26,6 @@ if (!string.IsNullOrWhiteSpace(keyVaultUri))
         new Azure.Identity.DefaultAzureCredential());
 }
 
-// Console sink comes from appsettings.json (Serilog:WriteTo) — do not add a
-// second one here or every line is logged twice.
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
@@ -85,7 +80,7 @@ builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.MapInboundClaims = false; // keep raw claim names (sub, email, role, jti)
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "building-manager",
@@ -101,8 +96,7 @@ builder.Services
         };
         options.Events = new JwtBearerEvents
         {
-            // Check the session grain so terminated (logged-out) tokens are
-            // rejected immediately instead of staying valid until expiry.
+
             OnTokenValidated = async context =>
             {
                 var sessionId = context.Principal?.FindFirst("jti")?.Value;
@@ -127,8 +121,7 @@ builder.Services
                 }
                 catch (Exception ex)
                 {
-                    // Session storage unavailable: fail open rather than lock
-                    // everyone out (signature and expiry were already checked).
+
                     var logger = context.HttpContext.RequestServices
                         .GetService<ILoggerFactory>()?.CreateLogger("JwtSessionValidation");
                     logger?.LogWarning(ex, "Could not validate session {SessionId}", sessionId);
@@ -138,18 +131,15 @@ builder.Services
     });
 builder.Services.AddAuthorization(options =>
 {
-    // Mutations that change building data require a management role.
+
     options.AddPolicy(AuthPolicies.ManageOnly, policy => policy.RequireRole(AuthPolicies.ManageRoles));
 
-    // Building-scoped endpoints additionally require access to that building
-    // (admins bypass), checked by BuildingAccessHandler.
     options.AddPolicy(AuthPolicies.BuildingAccess, policy => policy
         .RequireAuthenticatedUser()
         .AddRequirements(new BuildingAccessRequirement()));
 });
 builder.Services.AddScoped<IAuthorizationHandler, BuildingAccessHandler>();
 
-// The Blazor WebAssembly client is hosted on a different origin than this API.
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
 builder.Services.AddCors(options =>
 {
@@ -161,7 +151,7 @@ builder.Services.AddCors(options =>
         }
         else
         {
-            // No origins configured: allow any origin outside production.
+
             policy.SetIsOriginAllowed(_ => !builder.Environment.IsProduction());
         }
 
@@ -172,9 +162,6 @@ builder.Services.AddCors(options =>
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
-// Email/SMS: dev loggers by default; real senders (Azure Communication
-// Services) when connection details are configured. Email:SenderAddress must
-// be verified in the ACS resource; SMS uses E.164 numbers and costs apply.
 var emailConnection = builder.Configuration["Email:ConnectionString"];
 var emailSenderAddress = builder.Configuration["Email:SenderAddress"];
 if (!string.IsNullOrEmpty(emailConnection) && !string.IsNullOrEmpty(emailSenderAddress))
@@ -202,7 +189,6 @@ builder.Services.AddSingleton<AssemblyReportGenerator>();
 builder.Services.AddSingleton<FinanceReportGenerator>();
 builder.Services.AddHostedService<AdminSeeder>();
 
-// Document content lives in blob storage (Azurite locally, Azure Blob in production).
 builder.Services.AddSingleton<IBuildingDocumentStorage>(_ =>
 {
     var connectionString = builder.Configuration["Storage:BlobConnectionString"]
@@ -211,7 +197,6 @@ builder.Services.AddSingleton<IBuildingDocumentStorage>(_ =>
     return new AzureBlobDocumentStorage(connectionString, containerName);
 });
 
-// Brute-force protection for auth endpoints: fixed window per client IP.
 var authRateLimit = builder.Configuration.GetValue("RateLimit:AuthRequestsPerMinute", 10);
 builder.Services.AddRateLimiter(options =>
 {
@@ -246,9 +231,6 @@ builder.Host.UseOrleansClient(client =>
         options.ServiceId = serviceId;
     });
 
-    // Against a real deployment the gateways come from the same clustering
-    // table the silo writes to; the static loopback gateway is only a
-    // fallback for a single-silo local run without a database.
     var orleansConnectionString = builder.Configuration.GetConnectionString("OrleansStorage");
     if (!string.IsNullOrWhiteSpace(orleansConnectionString))
     {

@@ -95,7 +95,6 @@ public class AnnouncementState
     [Id(10)] public string? CreatedByName { get; set; }
 }
 
-/// <summary>A document's metadata; the bytes live in blob storage (see IBuildingDocumentStorage).</summary>
 [GenerateSerializer]
 public class DocumentState
 {
@@ -111,7 +110,6 @@ public class DocumentState
     [Id(9)] public DateTime UploadedAt { get; set; }
 }
 
-/// <summary>Legacy (pre finance-grain) payment record; only read for migration.</summary>
 [GenerateSerializer]
 public class PaymentState
 {
@@ -124,7 +122,6 @@ public class PaymentState
     [Id(6)] public string? Reference { get; set; }
 }
 
-/// <summary>Legacy (pre finance-grain) expense record; only read for migration.</summary>
 [GenerateSerializer]
 public class ExpenseState
 {

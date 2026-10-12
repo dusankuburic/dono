@@ -49,7 +49,6 @@ else
         <MudAlert Severity="Severity.Error" Class="mt-4" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
     }
 
-    @* ---------- Before the meeting: notice ---------- *@
     @if (_canManage && _a.Status is AssemblyStatus.Scheduled or AssemblyStatus.NoticeSent)
     {
         <MudPaper Class="pa-4 mt-4" Elevation="2">
@@ -94,7 +93,6 @@ else
         </MudPaper>
     }
 
-    @* ---------- During the meeting: quorum and attendance ---------- *@
     @if (_a.Status is AssemblyStatus.InProgress or AssemblyStatus.Completed && _a.EligibleVotes > 0)
     {
         <MudPaper Class="pa-4 mt-4" Elevation="2">
@@ -177,7 +175,6 @@ else
         </MudPaper>
     }
 
-    @* ---------- Agenda (and voting during the meeting) ---------- *@
     <MudPaper Class="pa-4 mt-4" Elevation="2">
         <MudText Typo="Typo.h6" Class="mb-2">Agenda</MudText>
         @foreach (var item in _a.Agenda)
@@ -281,7 +278,6 @@ else
         }
     </MudPaper>
 
-    @* ---------- Notes / minutes text ---------- *@
     @if (_canManage && _a.Status is AssemblyStatus.Scheduled or AssemblyStatus.NoticeSent or AssemblyStatus.InProgress)
     {
         <MudPaper Class="pa-4 mt-4" Elevation="2">
@@ -301,7 +297,6 @@ else
         </MudPaper>
     }
 
-    @* ---------- Repeated session after a first session without quorum ---------- *@
     @if (_canManage && _a.Status == AssemblyStatus.Completed && _a.SessionType == SessionType.First && _a.QuorumAchieved == false)
     {
         <MudPaper Class="pa-4 mt-4" Elevation="2">
@@ -324,7 +319,6 @@ else
         </MudPaper>
     }
 
-    @* ---------- End or cancel ---------- *@
     @if (_canManage && _a.Status is AssemblyStatus.Scheduled or AssemblyStatus.NoticeSent or AssemblyStatus.InProgress)
     {
         <MudStack Row="true" Spacing="2" Class="mt-4">
@@ -366,7 +360,6 @@ else
 
     private DateTime? RepeatTime => _repeatDate is { } d && _repeatTime is { } t ? d.Date + t : null;
 
-    /// <summary>Mirrors the server rule: a meeting opens at most an hour before the announced time.</summary>
     private bool CanStartNow => _a is not null && DateTime.UtcNow >= _a.Date.AddHours(-1);
 
     protected override async Task OnParametersSetAsync()
@@ -390,7 +383,7 @@ else
         {
             try
             {
-                // Owner names pre-fill the attendee column; best effort.
+
                 var residents = await BuildingService.GetResidentsAsync(BuildingId);
                 _ownerNames = residents
                     .Where(r => r.UnitNumber is not null && r.Role is ResidentRole.Owner or ResidentRole.CoOwner)
@@ -400,12 +393,11 @@ else
             }
             catch
             {
-                // Names are a convenience only.
+
             }
         }
     }
 
-    /// <summary>Takes a fresh copy of the assembly and rebuilds the editable rows from it.</summary>
     private void Show(AssemblyDetails assembly)
     {
         _a = assembly;
@@ -421,8 +413,6 @@ else
         }).ToList();
     }
 
-    /// <summary>Runs an API action, shows the updated assembly, and reports errors inline.</summary>
-    /// <summary>The formal notice, printable for posting in the building (UC-007).</summary>
     private async Task DownloadNoticePdf()
     {
         _busy = true;
@@ -547,7 +537,6 @@ else
         _ => Color.Default
     };
 
-    /// <summary>Editable attendance row; Type 0 means absent.</summary>
     private sealed class AttendanceRow
     {
         private readonly int _savedType;
@@ -563,7 +552,7 @@ else
             ProxyHolder = _savedProxy = recorded?.ProxyHolderName;
             if (recorded is null)
             {
-                // Only the type counts as a change for an absent unit.
+
                 _savedAttendee = AttendeeName;
             }
         }

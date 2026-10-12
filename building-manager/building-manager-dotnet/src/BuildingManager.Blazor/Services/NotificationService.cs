@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>The signed-in user's in-app notifications. Failures throw InvalidOperationException with the API's message.</summary>
 public interface INotificationService
 {
     Task<List<NotificationInfo>> GetRecentAsync(int limit = 30);

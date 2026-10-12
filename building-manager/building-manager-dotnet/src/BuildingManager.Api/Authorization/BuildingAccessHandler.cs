@@ -4,11 +4,6 @@ using Orleans;
 
 namespace BuildingManager.Api.Authorization;
 
-/// <summary>
-/// Requirement satisfied when the caller is allowed to operate on the
-/// building in the route: admins always pass, everyone else needs explicit
-/// access granted through their user grain.
-/// </summary>
 public class BuildingAccessRequirement : IAuthorizationRequirement
 {
 }
@@ -37,8 +32,6 @@ public class BuildingAccessHandler : AuthorizationHandler<BuildingAccessRequirem
             return;
         }
 
-        // Endpoints without a building id in the route (e.g. the building
-        // list) have nothing to check here; they filter by access themselves.
         var buildingId = httpContext.Request.RouteValues["buildingId"] as string;
         if (string.IsNullOrEmpty(buildingId))
         {

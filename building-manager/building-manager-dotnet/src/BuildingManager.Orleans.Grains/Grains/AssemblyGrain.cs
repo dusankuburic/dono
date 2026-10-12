@@ -6,10 +6,6 @@ using Orleans.Runtime;
 
 namespace BuildingManager.Orleans.Grains;
 
-/// <summary>
-/// One owners' assembly (key "{buildingId}|{assemblyId}"). Quorum and
-/// majority thresholds come from AssemblyRules, shared with the domain model.
-/// </summary>
 public class AssemblyGrain : Grain, IAssemblyGrain
 {
     private const int MaxNotesLength = 10_000;
@@ -48,7 +44,7 @@ public class AssemblyGrain : Grain, IAssemblyGrain
             throw new ArgumentException("Location is required.", nameof(request));
 
         var now = DateTime.UtcNow;
-        // JSON with an offset binds as local time; unspecified means UTC.
+
         var date = request.Date.Kind switch
         {
             DateTimeKind.Local => request.Date.ToUniversalTime(),
@@ -88,8 +84,6 @@ public class AssemblyGrain : Grain, IAssemblyGrain
             throw new ArgumentException("Only a repeated session references a previous assembly.", nameof(request));
         }
 
-        // Register first: a listed id whose state was never written is
-        // skipped by listings, while an unlisted assembly would be lost.
         await GrainFactory.GetGrain<IAssemblyRegistryGrain>(buildingId).RegisterAsync(assemblyId);
 
         S.Date = date;
@@ -179,7 +173,7 @@ public class AssemblyGrain : Grain, IAssemblyGrain
     public async Task StartAsync()
     {
         EnsureStatus("The meeting can only start after notice has been sent.", AssemblyStatus.NoticeSent);
-        // Owners were told when the meeting is; holding it earlier would not be valid.
+
         if (DateTime.UtcNow < S.Date - AssemblyRules.EarliestStartBeforeAnnounced)
             throw new InvalidOperationException(
                 "The meeting cannot start more than an hour before the time announced to the owners.");
@@ -280,7 +274,7 @@ public class AssemblyGrain : Grain, IAssemblyGrain
         }
         else
         {
-            // Informational item: recorded as dealt with, like the domain model.
+
             item.Result = VoteResult.Passed;
         }
 
@@ -321,7 +315,6 @@ public class AssemblyGrain : Grain, IAssemblyGrain
             }
         }
 
-        // Fixed for the record: the minutes must not change if the rules do.
         S.FinalQuorumAchieved = quorum;
         S.FinalQuorumPercentage = AssemblyRules.QuorumPercentage(present, eligible);
         S.Status = AssemblyStatus.Completed;
@@ -406,7 +399,7 @@ public class AssemblyGrain : Grain, IAssemblyGrain
 
     private static AgendaItemInfo ToInfo(AgendaItemState item)
     {
-        // Finalized items report their recorded tallies; open ones the live count.
+
         var (votesFor, votesAgainst, votesAbstain) = item.IsFinalized && item.RequiresVote
             ? (item.VotesFor, item.VotesAgainst, item.VotesAbstain)
             : Tally(item);
@@ -478,7 +471,6 @@ public class AssemblyGrain : Grain, IAssemblyGrain
     }
 }
 
-/// <summary>Per-building assembly index (key = building id).</summary>
 public class AssemblyRegistryGrain : Grain, IAssemblyRegistryGrain
 {
     private readonly IPersistentState<AssemblyRegistryState> _state;
@@ -526,10 +518,8 @@ public class AssemblyState
     [Id(12)] public DateTime? CancelledAt { get; set; }
     [Id(13)] public string? Notes { get; set; }
     [Id(14)] public List<AgendaItemState> Agenda { get; set; } = new();
-    /// <summary>Attendance by unit number.</summary>
-    [Id(15)] public Dictionary<string, AttendanceState> Attendance { get; set; } = new();
-    /// <summary>Unit number -> voting share, snapshotted when the meeting starts.</summary>
-    [Id(16)] public Dictionary<string, decimal> EligibleUnitShares { get; set; } = new();
+        [Id(15)] public Dictionary<string, AttendanceState> Attendance { get; set; } = new();
+        [Id(16)] public Dictionary<string, decimal> EligibleUnitShares { get; set; } = new();
     [Id(17)] public bool? FinalQuorumAchieved { get; set; }
     [Id(18)] public decimal? FinalQuorumPercentage { get; set; }
 }
@@ -548,8 +538,7 @@ public class AgendaItemState
     [Id(8)] public decimal VotesFor { get; set; }
     [Id(9)] public decimal VotesAgainst { get; set; }
     [Id(10)] public decimal VotesAbstain { get; set; }
-    /// <summary>Votes by unit number.</summary>
-    [Id(11)] public Dictionary<string, VoteState> Votes { get; set; } = new();
+        [Id(11)] public Dictionary<string, VoteState> Votes { get; set; } = new();
 }
 
 [GenerateSerializer]

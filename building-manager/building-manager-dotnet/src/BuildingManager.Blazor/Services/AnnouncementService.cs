@@ -6,14 +6,11 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>Building announcements. Failures throw InvalidOperationException with the API's message.</summary>
 public interface IAnnouncementService
 {
-    /// <summary>The residents' feed: published, not expired, pinned first.</summary>
-    Task<List<AnnouncementInfo>> GetFeedAsync(string buildingId);
+        Task<List<AnnouncementInfo>> GetFeedAsync(string buildingId);
 
-    /// <summary>Everything kept, including scheduled and expired (managers only).</summary>
-    Task<List<AnnouncementInfo>> GetHistoryAsync(string buildingId);
+        Task<List<AnnouncementInfo>> GetHistoryAsync(string buildingId);
 
     Task<AnnouncementInfo> CreateAsync(string buildingId, string title, string content, AnnouncementType type,
         DateTime? scheduledForUtc, DateTime? expiresAtUtc, bool isPinned);

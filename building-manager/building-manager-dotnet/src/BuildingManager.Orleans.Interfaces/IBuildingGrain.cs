@@ -8,81 +8,57 @@ public interface IBuildingGrain : IGrainWithStringKey
     Task<BuildingSummary> GetSummaryAsync();
     Task InitializeAsync(BuildingInfo info);
     Task UpdateInfoAsync(BuildingInfo info);
-    
+
     Task<UnitInfo> GetUnitAsync(string number);
     Task<IEnumerable<UnitInfo>> GetAllUnitsAsync();
     Task AddOrUpdateUnitAsync(UnitInfo unit);
     Task RemoveUnitAsync(string number);
-    
+
     Task<IEnumerable<ResidentInfo>> GetResidentsAsync();
     Task AddResidentAsync(ResidentInfo resident);
     Task RemoveResidentAsync(Guid residentId);
-    
+
     Task<IEnumerable<KeyInfo>> GetAllKeysAsync();
     Task<KeyInfo> CheckoutKeyAsync(Guid keyId, KeyCheckoutRequest checkout);
     Task<KeyInfo> CheckinKeyAsync(Guid keyId, string? condition, string? notes);
     Task<IEnumerable<KeyInfo>> GetOverdueKeysAsync();
     Task AddKeyAsync(KeyInfo key);
-    
+
     Task<IEnumerable<WorkOrderInfo>> GetWorkOrdersAsync(WorkOrderStatus? status = null);
     Task<WorkOrderInfo> CreateWorkOrderAsync(CreateWorkOrderRequest request);
     Task<WorkOrderInfo> UpdateWorkOrderStatusAsync(Guid workOrderId, WorkOrderStatus status, string? notes);
-    
-    /// <summary>
-    /// Publishes an announcement now or at ScheduledFor (not in the past),
-    /// optionally until ExpiresAt. Throws ArgumentException for invalid input.
-    /// </summary>
-    Task CreateAnnouncementAsync(AnnouncementInfo announcement);
 
-    /// <summary>The residents' feed: published and not expired, pinned first.</summary>
-    Task<IEnumerable<AnnouncementInfo>> GetAnnouncementsAsync(int limit = 20);
+        Task CreateAnnouncementAsync(AnnouncementInfo announcement);
 
-    /// <summary>Every announcement kept (the last 12 months, plus pinned ones), including scheduled and expired.</summary>
-    Task<IEnumerable<AnnouncementInfo>> GetAnnouncementHistoryAsync();
+        Task<IEnumerable<AnnouncementInfo>> GetAnnouncementsAsync(int limit = 20);
+
+        Task<IEnumerable<AnnouncementInfo>> GetAnnouncementHistoryAsync();
 
     Task SetAnnouncementPinnedAsync(Guid announcementId, bool pinned);
 
-    /// <summary>Takes an announcement out of the feed by expiring it now; it stays in the history.</summary>
-    Task ArchiveAnnouncementAsync(Guid announcementId);
+        Task ArchiveAnnouncementAsync(Guid announcementId);
 
-    /// <summary>
-    /// Marks scheduled announcements whose time has come as sent and returns
-    /// them, so the scheduler can notify members. Announcements already
-    /// expired before their scheduled time are marked sent but not returned.
-    /// </summary>
-    Task<List<AnnouncementInfo>> PublishDueAnnouncementsAsync();
+        Task<List<AnnouncementInfo>> PublishDueAnnouncementsAsync();
 
-    /// <summary>All document records, newest first. The caller filters by access level.</summary>
-    Task<IEnumerable<DocumentInfo>> GetDocumentsAsync();
+        Task<IEnumerable<DocumentInfo>> GetDocumentsAsync();
 
     Task<DocumentInfo> GetDocumentAsync(Guid documentId);
 
-    /// <summary>
-    /// Stores a document's record. Throws ArgumentException for invalid input
-    /// and InvalidOperationException when the building's quota is full.
-    /// </summary>
-    Task AddDocumentAsync(DocumentInfo document);
+        Task AddDocumentAsync(DocumentInfo document);
 
-    /// <summary>Deletes the document's record and returns it; the caller removes the blob content.</summary>
-    Task<DocumentInfo> RemoveDocumentAsync(Guid documentId);
+        Task<DocumentInfo> RemoveDocumentAsync(Guid documentId);
 
     Task<FinancialSummary> GetFinancialSummaryAsync(DateTime? from = null, DateTime? to = null);
     Task RecordPaymentAsync(PaymentInfo payment);
     Task RecordExpenseAsync(ExpenseInfo expense);
 
-    /// <summary>Per-unit fee status for a billing month, judged against the fee in force by the end of it.</summary>
-    Task<MonthPaymentStatus> GetPaymentStatusAsync(int year, int month);
+        Task<MonthPaymentStatus> GetPaymentStatusAsync(int year, int month);
 
-    /// <summary>Payments received and expenses incurred in a month, plus payments received elsewhere for it.</summary>
-    Task<MonthLedger> GetFinanceLedgerAsync(int year, int month);
+        Task<MonthLedger> GetFinanceLedgerAsync(int year, int month);
 
-    /// <summary>A unit's payments received in the last <paramref name="months"/> months, newest first.</summary>
-    Task<List<PaymentInfo>> GetUnitPaymentHistoryAsync(string unitNumber, int months = 12);
+        Task<List<PaymentInfo>> GetUnitPaymentHistoryAsync(string unitNumber, int months = 12);
 
-    /// <summary>
-    /// Activates a new fee structure and deactivates the previously active one.
-    /// </summary>
-    Task SetFeeStructureAsync(FeeStructureInfo fee);
+        Task SetFeeStructureAsync(FeeStructureInfo fee);
 }
 
 [GenerateSerializer]
@@ -223,14 +199,12 @@ public record AnnouncementInfo
     [Id(10)] public string? CreatedByName { get; init; }
 }
 
-/// <summary>One document may be at most this big; a building may keep this much in total (NFR: 1 GB).</summary>
 public static class BuildingDocumentLimits
 {
     public const long MaxDocumentSizeBytes = 25L * 1024 * 1024;
     public const long BuildingQuotaBytes = 1024L * 1024 * 1024;
 }
 
-/// <summary>A building document's record; the file content lives in blob storage.</summary>
 [GenerateSerializer]
 public record DocumentInfo
 {
@@ -282,27 +256,20 @@ public record PaymentInfo
     [Id(8)] public string? Notes { get; init; }
 }
 
-/// <summary>
-/// How a unit stands with its monthly fee (UC-008 colours): paid this month
-/// (green), only last month paid (yellow), or two or more months unpaid (red).
-/// </summary>
 public enum PaymentStanding
 {
-    /// <summary>No fee structure in force, so nothing is due.</summary>
-    NoFee = 0,
+        NoFee = 0,
     Paid = 1,
     OneMonthBehind = 2,
     TwoOrMoreMonthsBehind = 3
 }
 
-/// <summary>Fee status of every unit for one billing month.</summary>
 [GenerateSerializer]
 public record MonthPaymentStatus
 {
     [Id(0)] public int Year { get; init; }
     [Id(1)] public int Month { get; init; }
-    /// <summary>Name of the fee structure in force that month, if any.</summary>
-    [Id(2)] public string? FeeName { get; init; }
+        [Id(2)] public string? FeeName { get; init; }
     [Id(3)] public List<UnitPaymentStatus> Units { get; init; } = new();
 }
 
@@ -311,10 +278,8 @@ public record UnitPaymentStatus
 {
     [Id(0)] public string UnitNumber { get; init; } = string.Empty;
     [Id(1)] public decimal AreaM2 { get; init; }
-    /// <summary>Fee due for the month (fixed amount + amount per m² × area).</summary>
-    [Id(2)] public decimal Expected { get; init; }
-    /// <summary>Paid for this billing month, wherever it was received (partial and overpayments included).</summary>
-    [Id(3)] public decimal Paid { get; init; }
+        [Id(2)] public decimal Expected { get; init; }
+        [Id(3)] public decimal Paid { get; init; }
     [Id(4)] public PaymentStanding Standing { get; init; }
 }
 

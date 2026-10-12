@@ -6,13 +6,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// The background-job scheduler: publishing scheduled announcements, the
-/// managers' daily digest (overdue keys, emergencies past 48 hours) and
-/// assembly reminders. Each test drives its own scheduler instance (production
-/// uses the "global" singleton) so the shared daily-pass date never leaks
-/// between tests.
-/// </summary>
 public class SchedulerGrainClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -27,8 +20,7 @@ public class SchedulerGrainClusterTests : IClassFixture<ClusterFixture>
     private ISchedulerGrain Scheduler() =>
         GrainFactory.GetGrain<ISchedulerGrain>($"test-{Guid.NewGuid():N}");
 
-    /// <summary>A building with a manager and an owner as members (accounts + access).</summary>
-    private async Task<(string BuildingId, IBuildingGrain Building, string ManagerEmail, string OwnerEmail)> SetupAsync()
+        private async Task<(string BuildingId, IBuildingGrain Building, string ManagerEmail, string OwnerEmail)> SetupAsync()
     {
         var buildingId = $"swept-{Guid.NewGuid():N}";
         var building = GrainFactory.GetGrain<IBuildingGrain>(buildingId);
@@ -69,7 +61,6 @@ public class SchedulerGrainClusterTests : IClassFixture<ClusterFixture>
             CreatedBy = Guid.NewGuid()
         });
 
-        // Until it is due nothing happens.
         var scheduler = Scheduler();
         await scheduler.RunSweepAsync();
         (await Notifications(managerEmail).GetRecentAsync()).Should().BeEmpty();
@@ -82,7 +73,6 @@ public class SchedulerGrainClusterTests : IClassFixture<ClusterFixture>
         (await Notifications(ownerEmail).GetRecentAsync()).Select(n => n.Title).Should().Contain(title);
         (await building.GetAnnouncementsAsync()).Single().SentAt.Should().NotBeNull();
 
-        // A second sweep the same day does not repeat the notification.
         await scheduler.RunSweepAsync();
         (await Notifications(managerEmail).GetRecentAsync()).Count(n => n.Title == title).Should().Be(1);
     }
@@ -98,7 +88,7 @@ public class SchedulerGrainClusterTests : IClassFixture<ClusterFixture>
             RecipientName = "Petar Petrovic",
             RecipientType = RecipientType.Resident,
             Purpose = "Viewing",
-            // A return date that slips into the past during the test.
+
             ExpectedReturn = DateTime.UtcNow.AddSeconds(2)
         });
         await Task.Delay(2500);
@@ -143,7 +133,7 @@ public class SchedulerGrainClusterTests : IClassFixture<ClusterFixture>
         var assemblyId = Guid.NewGuid();
         await GrainFactory.GetGrain<IAssemblyGrain>($"{buildingId}|{assemblyId}").ScheduleAsync(new ScheduleAssemblyRequest
         {
-            Date = DateTime.UtcNow.AddHours(36), // inside the two-day window
+            Date = DateTime.UtcNow.AddHours(36),
             Location = "Entrance hall",
             AllowShortNotice = true,
             Agenda = new List<AgendaItemDraft> { new() { Title = "Repairs" } }
@@ -157,7 +147,6 @@ public class SchedulerGrainClusterTests : IClassFixture<ClusterFixture>
         (await Notifications(managerEmail).GetRecentAsync()).Count(n => n.Title == title).Should().Be(1);
         (await Notifications(ownerEmail).GetRecentAsync()).Count(n => n.Title == title).Should().Be(1);
 
-        // Still in the same stage on a second pass: no repeat.
         await scheduler.RunSweepAsync();
         (await Notifications(managerEmail).GetRecentAsync()).Count(n => n.Title == title).Should().Be(1);
     }

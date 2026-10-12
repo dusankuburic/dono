@@ -3,11 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace BuildingManager.Api.Middleware;
 
-/// <summary>
-/// Translates domain/grain exceptions into HTTP responses:
-/// KeyNotFoundException -> 404, ArgumentException -> 400 (invalid input),
-/// InvalidOperationException -> 409 (business rule violation).
-/// </summary>
 public partial class GlobalExceptionHandler : IExceptionHandler
 {
     private readonly ILogger<GlobalExceptionHandler> _logger;
@@ -46,7 +41,7 @@ public partial class GlobalExceptionHandler : IExceptionHandler
             Status = statusCode,
             Title = title,
             Detail = statusCode == StatusCodes.Status500InternalServerError
-                ? null // never leak internals for unexpected failures
+                ? null
                 : UserFacingMessage(exception)
         };
 
@@ -55,12 +50,7 @@ public partial class GlobalExceptionHandler : IExceptionHandler
         return true;
     }
 
-    /// <summary>
-    /// ArgumentException appends " (Parameter 'name')" to its message, which
-    /// means nothing to the user reading the error; drop it. Matched as text
-    /// because exceptions rethrown from grains keep the message but lose ParamName.
-    /// </summary>
-    private static string UserFacingMessage(Exception exception) =>
+        private static string UserFacingMessage(Exception exception) =>
         exception is ArgumentException
             ? ParameterSuffix().Replace(exception.Message, string.Empty)
             : exception.Message;

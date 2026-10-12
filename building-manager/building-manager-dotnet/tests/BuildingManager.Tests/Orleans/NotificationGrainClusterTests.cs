@@ -7,10 +7,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// In-app notifications per user (keyed by email): adding, read tracking and
-/// the 100-item cap that never drops unread items while read ones exist.
-/// </summary>
 public class NotificationGrainClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -56,7 +52,7 @@ public class NotificationGrainClusterTests : IClassFixture<ClusterFixture>
         await grain.AddAsync(second);
 
         await grain.MarkReadAsync(first.Id);
-        // Marking an unknown notification is a no-op, not an error.
+
         await grain.MarkReadAsync(Guid.NewGuid());
 
         (await grain.GetUnreadCountAsync()).Should().Be(1);
@@ -93,8 +89,7 @@ public class NotificationGrainClusterTests : IClassFixture<ClusterFixture>
         {
             await grain.AddAsync(note);
         }
-        // One more pushes the total over the limit: the read one is dropped,
-        // the unread ones stay.
+
         var newest = Note("newest");
         await grain.AddAsync(newest);
 

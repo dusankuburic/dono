@@ -7,11 +7,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Reports;
 
-/// <summary>
-/// The report generators take grain DTOs and return bytes, so they can be
-/// exercised directly: PDFs must be real PDFs, the Excel must round-trip
-/// through ClosedXML with the units listed.
-/// </summary>
 public class ReportGenerationTests
 {
     private static readonly BuildingSummary Building = new()
@@ -105,11 +100,10 @@ public class ReportGenerationTests
         sheet.Cell(7, 5).GetString().Should().Be("2+ months behind");
 
         sheet.Cell(8, 1).GetString().Should().Be("Total");
-        sheet.Cell(8, 3).GetValue<decimal>().Should().Be(2900m); // 1200 + 700 + 1000
-        sheet.Cell(8, 4).GetValue<decimal>().Should().Be(1500m); // min(1200,1200) + min(300,700) + min(0,1000)
+        sheet.Cell(8, 3).GetValue<decimal>().Should().Be(2900m);
+        sheet.Cell(8, 4).GetValue<decimal>().Should().Be(1500m);
     }
 
-    /// <summary>PDFs start with "%PDF-", the file signature.</summary>
-    private static string Signature(byte[] pdf) =>
+        private static string Signature(byte[] pdf) =>
         System.Text.Encoding.ASCII.GetString(pdf, 0, 5);
 }

@@ -14,7 +14,7 @@ public class Attendance : BaseEntity
 
     private Attendance() { }
 
-    internal static Attendance Create(Guid assemblyId, Guid residentId, AttendanceType type, 
+    internal static Attendance Create(Guid assemblyId, Guid residentId, AttendanceType type,
         decimal votingShare, Guid? proxyHolderId = null)
     {
         return new Attendance

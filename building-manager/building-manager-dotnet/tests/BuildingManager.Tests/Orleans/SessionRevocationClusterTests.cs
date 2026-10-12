@@ -5,10 +5,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// The user account's active-session index: login tracks sessions, logout
-/// untracks them, and password reset/change terminates every tracked session.
-/// </summary>
 public class SessionRevocationClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -33,8 +29,7 @@ public class SessionRevocationClusterTests : IClassFixture<ClusterFixture>
         return grain;
     }
 
-    /// <summary>Starts a real session grain and registers it on the account.</summary>
-    private async Task<string> LoginSession(IUserGrain user)
+        private async Task<string> LoginSession(IUserGrain user)
     {
         var sessionId = Guid.NewGuid().ToString("N");
         await GrainFactory.GetGrain<IUserSessionGrain>(sessionId).StartSessionAsync(new UserSession
@@ -92,14 +87,11 @@ public class SessionRevocationClusterTests : IClassFixture<ClusterFixture>
         var loggedOut = await LoginSession(user);
         var active = await LoginSession(user);
 
-        // Logout: terminate + unregister (as the API does).
         await GrainFactory.GetGrain<IUserSessionGrain>(loggedOut).TerminateAsync();
         await user.UnregisterSessionAsync(loggedOut);
 
         await user.TerminateAllSessionsAsync();
 
-        // The already-logged-out session is untouched (it was untracked and
-        // already invalid); the active one is revoked.
         (await SessionValid(loggedOut)).Should().BeFalse();
         (await SessionValid(active)).Should().BeFalse();
     }
@@ -107,9 +99,7 @@ public class SessionRevocationClusterTests : IClassFixture<ClusterFixture>
     [Fact]
     public async Task Sessions_Beyond_The_Tracking_Cap_Cannot_Survive_A_Reset()
     {
-        // The account tracks at most 20 sessions. The oldest one evicted from
-        // the list must be terminated; otherwise it would be invisible to a
-        // password reset and could be refreshed forever.
+
         var user = await RegisteredUser($"cap-{Guid.NewGuid():N}@example.com");
         var oldest = await LoginSession(user);
         var newer = new List<string>();

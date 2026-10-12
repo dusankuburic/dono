@@ -6,13 +6,6 @@ using Orleans.Runtime;
 
 namespace BuildingManager.Orleans.Grains;
 
-/// <summary>
-/// Runs the platform's background jobs (see ISchedulerGrain). Every few
-/// minutes it publishes scheduled announcements that came due; the first pass
-/// of each day also sends assembly reminders and the managers' digest of
-/// overdue keys and breached emergency deadlines. Notifications are per-user
-/// grains keyed by email, like everywhere else.
-/// </summary>
 public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
 {
     private const string SweepReminder = "sweep";
@@ -34,8 +27,7 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        // The reminder table survives restarts, so this mostly no-ops; on a
-        // fresh database it is what starts the sweep cycle.
+
         await this.RegisterOrUpdateReminder(SweepReminder, FirstSweepDelay, SweepPeriod);
         await base.OnActivateAsync(cancellationToken);
     }
@@ -60,8 +52,6 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
             }
         }
 
-        // The daily jobs (reminders, digests) run on the first pass of each
-        // day; one pass per building failure keeps the rest of the day intact.
         if (_state.State.LastDailyPassUtc?.Date == now.Date)
             return;
 
@@ -80,7 +70,7 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
         _state.State.LastDailyPassUtc = now;
         if (_state.State.AssemblyReminderStage.Count > 1_000)
         {
-            // Old finished assemblies pile up slowly; drop the completed ones.
+
             var finished = _state.State.AssemblyReminderStage
                 .Where(kv => kv.Value >= Done).Select(kv => kv.Key).ToList();
             foreach (var key in finished)
@@ -112,8 +102,7 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
         await SendManagerDigestAsync(buildingId, now);
     }
 
-    /// <summary>UC-007: remind members of a noticed assembly 2 days, 1 day and on the day.</summary>
-    private async Task SendAssemblyRemindersAsync(string buildingId, DateTime now)
+        private async Task SendAssemblyRemindersAsync(string buildingId, DateTime now)
     {
         var assemblyIds = await GrainFactory.GetGrain<IAssemblyRegistryGrain>(buildingId).GetAssemblyIdsAsync();
         foreach (var assemblyId in assemblyIds)
@@ -142,8 +131,7 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
         }
     }
 
-    /// <summary>UC-002/UC-023: a daily digest for managers of keys past due and emergencies past 48 hours.</summary>
-    private async Task SendManagerDigestAsync(string buildingId, DateTime now)
+        private async Task SendManagerDigestAsync(string buildingId, DateTime now)
     {
         var building = GrainFactory.GetGrain<IBuildingGrain>(buildingId);
 
@@ -180,8 +168,6 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
         }
     }
 
-    // Reminder stages advance monotonically: 0 = nothing sent, 2 = the two-day
-    // reminder, 3 = the one-day/day-of reminder, 4 = nothing left to send.
     private const int TwoDays = 2;
     private const int OneDayOrToday = 3;
     private const int Done = 4;
@@ -195,8 +181,7 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
     private async Task<List<string>> MembersAsync(string buildingId) =>
         await GrainFactory.GetGrain<IBuildingAccessGrain>(buildingId).GetMemberEmailsAsync();
 
-    /// <summary>Building members whose account has a management role (they may also be plain owners registered as members).</summary>
-    private async Task<List<string>> ManagerMembersAsync(string buildingId)
+        private async Task<List<string>> ManagerMembersAsync(string buildingId)
     {
         var managers = new List<string>();
         foreach (var email in await MembersAsync(buildingId))
@@ -209,7 +194,7 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
             }
             catch (KeyNotFoundException)
             {
-                // Member without an account; nobody to notify.
+
             }
         }
         return managers;
@@ -234,8 +219,7 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
         });
     }
 
-    /// <summary>The first line or so of the message, enough to recognize it in the bell list.</summary>
-    private static string? Preview(string content)
+        private static string? Preview(string content)
     {
         var trimmed = content.Trim();
         return trimmed.Length <= 150 ? trimmed : trimmed[..147] + "…";
@@ -245,9 +229,7 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
 [GenerateSerializer]
 public class SchedulerState
 {
-    /// <summary>When the daily jobs last ran; one pass per calendar day.</summary>
-    [Id(0)] public DateTime? LastDailyPassUtc { get; set; }
+        [Id(0)] public DateTime? LastDailyPassUtc { get; set; }
 
-    /// <summary>Highest reminder stage sent per assembly, keyed "{buildingId}|{assemblyId}".</summary>
-    [Id(1)] public Dictionary<string, int> AssemblyReminderStage { get; set; } = new();
+        [Id(1)] public Dictionary<string, int> AssemblyReminderStage { get; set; } = new();
 }

@@ -37,8 +37,7 @@ public class AuthController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>Roles that public self-registration may assign. Admin roles are excluded.</summary>
-    private static readonly HashSet<UserRole> SelfRegistrationRoles = new()
+        private static readonly HashSet<UserRole> SelfRegistrationRoles = new()
     {
         UserRole.Owner,
         UserRole.Tenant,
@@ -80,7 +79,7 @@ public class AuthController : ControllerBase
 
         if (!await userGrain.ValidatePasswordAsync(request.Password))
         {
-            // Same response for unknown account and wrong password.
+
             return Unauthorized(new ProblemDetails
             {
                 Title = "Invalid credentials",
@@ -92,8 +91,7 @@ public class AuthController : ControllerBase
         return Ok(await StartNewSessionAsync(profile));
     }
 
-    /// <summary>Exchanges a valid refresh token for a new access token + rotated refresh token.</summary>
-    [HttpPost("refresh")]
+        [HttpPost("refresh")]
     [EnableRateLimiting("auth")]
     public async Task<ActionResult<AuthResponse>> Refresh([FromBody] RefreshRequest request)
     {
@@ -142,8 +140,7 @@ public class AuthController : ControllerBase
         });
     }
 
-    /// <summary>Requests a password reset. Always 200 — never reveals whether the account exists.</summary>
-    [HttpPost("forgot-password")]
+        [HttpPost("forgot-password")]
     [EnableRateLimiting("auth")]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
@@ -184,11 +181,7 @@ public class AuthController : ControllerBase
         return Ok();
     }
 
-    /// <summary>
-    /// Changes the password. Terminates ALL of the user's sessions (including
-    /// the current one) — the client should redirect to the login page.
-    /// </summary>
-    [Authorize]
+        [Authorize]
     [HttpPost("change-password")]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
     {
@@ -228,8 +221,7 @@ public class AuthController : ControllerBase
         });
     }
 
-    /// <summary>Terminates the session so the token stops working before its expiry.</summary>
-    [Authorize]
+        [Authorize]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
@@ -265,14 +257,11 @@ public class AuthController : ControllerBase
             AccessibleBuildingIds = new List<string>(),
             CreatedAt = now,
             LastActivityAt = now,
-            // The session lives as long as its refresh token: the access token
-            // expiry (60 min) is enforced by the JWT itself.
+
             ExpiresAt = sessionExpiry
         });
         await sessionGrain.SetRefreshTokenAsync(TokenHasher.Hash(secret));
 
-        // Track the session on the account so a password reset/change can
-        // revoke it (and every other device's session).
         await _grainFactory.GetGrain<IUserGrain>(profile.Email).RegisterSessionAsync(sessionId);
 
         _logger.LogInformation("Issued token for {Email} (role {Role})", profile.Email, profile.Role);

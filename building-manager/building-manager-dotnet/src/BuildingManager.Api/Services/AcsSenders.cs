@@ -3,11 +3,6 @@ using Azure.Communication.Sms;
 
 namespace BuildingManager.Api.Services;
 
-/// <summary>
-/// Real email via Azure Communication Services. Registered when
-/// Email:ConnectionString and Email:SenderAddress are configured; the sender
-/// address must be verified in the ACS resource (DoNotReply@domain or similar).
-/// </summary>
 public class AcsEmailSender : IEmailSender
 {
     private readonly EmailClient _client;
@@ -26,8 +21,6 @@ public class AcsEmailSender : IEmailSender
             content: new EmailContent(subject) { PlainText = plainBody, Html = htmlBody },
             recipients: new EmailRecipients(new[] { new EmailAddress(toEmail) }));
 
-        // WaitUntil.Completed so a rejected send surfaces here instead of
-        // silently vanishing into ACS's queue.
         await _client.SendAsync(Azure.WaitUntil.Completed, message);
     }
 
@@ -38,10 +31,6 @@ public class AcsEmailSender : IEmailSender
             "If this wasn't you, you can ignore this message.");
 }
 
-/// <summary>
-/// Real SMS via Azure Communication Services (E.164 numbers). Registered when
-/// Sms:ConnectionString and Sms:From are configured; SMS costs apply.
-/// </summary>
 public class AcsSmsSender : ISmsSender
 {
     private readonly SmsClient _client;

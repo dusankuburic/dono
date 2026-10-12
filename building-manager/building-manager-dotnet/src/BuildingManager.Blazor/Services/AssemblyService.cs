@@ -6,10 +6,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>
-/// Owners' assemblies. Mutations return the updated assembly; failures throw
-/// InvalidOperationException with the API's message (e.g. "Quorum not reached").
-/// </summary>
 public interface IAssemblyService
 {
     Task<List<AssemblySummary>> GetAssembliesAsync(string buildingId);

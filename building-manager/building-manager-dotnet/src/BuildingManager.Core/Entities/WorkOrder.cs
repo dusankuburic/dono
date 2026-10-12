@@ -21,16 +21,13 @@ public class WorkOrder : BaseEntity
     public decimal? ActualCost { get; private set; }
     public DateTime? CompletedAt { get; private set; }
     public DateTime? TargetCompletionDate { get; private set; }
-    
+
     private readonly List<WorkOrderNote> _notes = new();
     public IReadOnlyCollection<WorkOrderNote> Notes => _notes.AsReadOnly();
 
     private WorkOrder() { }
 
-    /// <summary>
-    /// Completed and cancelled work orders can no longer be modified.
-    /// </summary>
-    public bool IsInTerminalStatus => Status is WorkOrderStatus.Completed or WorkOrderStatus.Cancelled;
+        public bool IsInTerminalStatus => Status is WorkOrderStatus.Completed or WorkOrderStatus.Cancelled;
 
     private void EnsureNotTerminal(string action)
     {
@@ -38,15 +35,15 @@ public class WorkOrder : BaseEntity
             throw new InvalidOperationException($"Cannot {action} a work order in terminal status {Status}");
     }
 
-    public static WorkOrder Create(Guid buildingId, string title, string description, 
+    public static WorkOrder Create(Guid buildingId, string title, string description,
         WorkOrderCategory category, Priority priority, Guid reportedByResidentId,
         string? unitNumber = null, bool isEmergency = false)
     {
         if (string.IsNullOrWhiteSpace(title))
             throw new ArgumentException("Title is required", nameof(title));
-        
+
         var referenceNumber = GenerateReferenceNumber(buildingId);
-        
+
         var workOrder = new WorkOrder
         {
             BuildingId = buildingId,
@@ -80,7 +77,7 @@ public class WorkOrder : BaseEntity
     {
         if (Status != WorkOrderStatus.New)
             throw new InvalidOperationException("Can only acknowledge new work orders");
-        
+
         Status = WorkOrderStatus.Acknowledged;
         AddNote(acknowledgedBy, "Work order acknowledged");
         MarkAsUpdated();
@@ -90,7 +87,7 @@ public class WorkOrder : BaseEntity
     {
         if (Status != WorkOrderStatus.New && Status != WorkOrderStatus.Acknowledged)
             throw new InvalidOperationException("Can only start acknowledged or new work orders");
-        
+
         AssignedToId = assignedTo ?? startedBy;
         Status = WorkOrderStatus.InProgress;
         AddNote(startedBy, "Work started");
@@ -171,7 +168,7 @@ public class WorkOrder : BaseEntity
     }
 
     public bool IsEmergencyOverdue => IsEmergency && EmergencyDeadline.HasValue && DateTime.UtcNow > EmergencyDeadline.Value;
-    public TimeSpan? EmergencyTimeRemaining => IsEmergency && EmergencyDeadline.HasValue 
-        ? EmergencyDeadline.Value - DateTime.UtcNow 
+    public TimeSpan? EmergencyTimeRemaining => IsEmergency && EmergencyDeadline.HasValue
+        ? EmergencyDeadline.Value - DateTime.UtcNow
         : null;
 }

@@ -6,11 +6,6 @@ using QuestPDF.Infrastructure;
 
 namespace BuildingManager.Api.Reports;
 
-/// <summary>
-/// PDF documents for owners' assemblies: the notice (UC-007, printed for
-/// physical posting) and the minutes (UC-006). Plain generators — they take
-/// grain DTOs and return bytes, so tests can call them directly.
-/// </summary>
 public class AssemblyReportGenerator
 {
     static AssemblyReportGenerator() => QuestPDF.Settings.License = LicenseType.Community;

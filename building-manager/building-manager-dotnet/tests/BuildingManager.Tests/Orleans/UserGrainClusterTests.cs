@@ -5,10 +5,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// Authentication grains: user accounts (registration, credential checks) and
-/// sessions (validation, termination, building access) running in the test cluster.
-/// </summary>
 public class UserGrainClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -83,7 +79,6 @@ public class UserGrainClusterTests : IClassFixture<ClusterFixture>
         profile.Role.Should().Be(UserRole.Manager);
         profile.LastLoginAt.Should().BeNull("only successful logins update it");
 
-        // A successful validation records the login.
         await grain.ValidatePasswordAsync("S3curePass!");
         (await grain.GetProfileAsync()).LastLoginAt.Should().NotBeNull();
     }
@@ -122,7 +117,7 @@ public class UserGrainClusterTests : IClassFixture<ClusterFixture>
 
         await grain.GrantBuildingAccessAsync("bldg-1");
         await grain.GrantBuildingAccessAsync("bldg-2");
-        await grain.GrantBuildingAccessAsync("bldg-1"); // duplicate is a no-op
+        await grain.GrantBuildingAccessAsync("bldg-1");
 
         (await grain.HasBuildingAccessAsync("bldg-1")).Should().BeTrue();
         (await grain.GetAccessibleBuildingIdsAsync()).Should().BeEquivalentTo(new[] { "bldg-1", "bldg-2" });
@@ -155,7 +150,7 @@ public class UserGrainClusterTests : IClassFixture<ClusterFixture>
     [Fact]
     public async Task Grant_And_Revoke_Keep_The_Building_Member_Index_In_Sync()
     {
-        // Unique building id: the cluster (and so the index) is shared across tests.
+
         var buildingId = $"bldg-{Guid.NewGuid():N}";
         var alice = GetUserGrain();
         var bob = GetUserGrain();
@@ -165,7 +160,7 @@ public class UserGrainClusterTests : IClassFixture<ClusterFixture>
 
         await alice.GrantBuildingAccessAsync(buildingId);
         await bob.GrantBuildingAccessAsync(buildingId);
-        await alice.GrantBuildingAccessAsync(buildingId); // duplicate is a no-op
+        await alice.GrantBuildingAccessAsync(buildingId);
 
         (await index.GetMemberEmailsAsync()).Should().BeEquivalentTo(
             alice.GetPrimaryKeyString(), bob.GetPrimaryKeyString());
@@ -255,7 +250,7 @@ public class UserSessionGrainClusterTests : IClassFixture<ClusterFixture>
 
         await grain.AddBuildingAccessAsync("bldg-a");
         await grain.AddBuildingAccessAsync("bldg-b");
-        await grain.AddBuildingAccessAsync("bldg-a"); // duplicate is a no-op
+        await grain.AddBuildingAccessAsync("bldg-a");
 
         var access = (await grain.GetAccessibleBuildingsAsync()).ToList();
         access.Should().BeEquivalentTo(new[] { "bldg-a", "bldg-b" });

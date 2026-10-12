@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>Server-generated PDF/Excel reports. Failures throw InvalidOperationException with the API's message.</summary>
 public interface IReportService
 {
     Task<DownloadedDocument> GetAssemblyNoticePdfAsync(string buildingId, Guid assemblyId);

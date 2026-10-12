@@ -27,13 +27,10 @@ public class BuildingSelectionService : IBuildingSelectionService
         }
         catch when (!string.IsNullOrWhiteSpace(stored))
         {
-            // API unreachable: keep the last choice; pages show their own errors.
+
             return stored;
         }
 
-        // The stored choice may belong to another account that used this
-        // browser, or to a building whose access was revoked: keep it only
-        // while it is still one of this user's buildings.
         if (!string.IsNullOrWhiteSpace(stored) && buildings.Any(b => b.Id == stored))
         {
             return stored;

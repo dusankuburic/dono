@@ -5,11 +5,6 @@ using Orleans.Runtime;
 
 namespace BuildingManager.Orleans.Grains;
 
-/// <summary>
-/// Holds one building's payments and expenses for a single calendar month.
-/// The key format is "{buildingId}|{yyyy-MM}" and is produced by
-/// BuildingGrain.GetFinanceGrain.
-/// </summary>
 public class FinanceGrain : Grain, IFinanceGrain
 {
     private readonly IPersistentState<FinanceGrainState> _state;
@@ -22,24 +17,18 @@ public class FinanceGrain : Grain, IFinanceGrain
         _state = state;
     }
 
-    /// <summary>
-    /// The fee month a payment pays for: its Month/Year when given, otherwise
-    /// the month it was received. Receivables are computed per billing month.
-    /// </summary>
-    public static DateTime BillingPeriodOf(PaymentInfo payment) =>
+        public static DateTime BillingPeriodOf(PaymentInfo payment) =>
         payment.Year is int year && payment.Month is int month and >= 1 and <= 12
             ? new DateTime(year, month, 1)
             : new DateTime(payment.PaymentDate.Year, payment.PaymentDate.Month, 1);
 
-    /// <summary>First day of the month this grain holds, parsed from its key.</summary>
-    private DateTime Month => _month ??= ParseMonth(this.GetPrimaryKeyString());
+        private DateTime Month => _month ??= ParseMonth(this.GetPrimaryKeyString());
 
     public async Task RecordPaymentAsync(PaymentInfo payment)
     {
         if (payment.Amount <= 0)
             throw new ArgumentException("Payment amount must be positive", nameof(payment));
 
-        // Ids make retries safe: a repeated call must not count twice.
         if (_state.State.Payments.Any(p => p.Id == payment.Id))
             return;
 
@@ -73,7 +62,7 @@ public class FinanceGrain : Grain, IFinanceGrain
 
     public Task<MonthlyTotals> GetMonthlyTotalsAsync()
     {
-        // Received here and for this month, plus credits received elsewhere.
+
         var paidForThisMonth = _state.State.Payments
             .Where(p => BillingPeriodOf(p) == Month)
             .Concat(_state.State.PeriodPayments);
@@ -118,10 +107,8 @@ public class FinanceGrain : Grain, IFinanceGrain
 [GenerateSerializer]
 public class FinanceGrainState
 {
-    /// <summary>Payments received this month (income, collection rate).</summary>
-    [Id(0)] public List<PaymentInfo> Payments { get; set; } = new();
+        [Id(0)] public List<PaymentInfo> Payments { get; set; } = new();
     [Id(1)] public List<ExpenseInfo> Expenses { get; set; } = new();
 
-    /// <summary>Payments received in other months that pay this month's fee.</summary>
-    [Id(2)] public List<PaymentInfo> PeriodPayments { get; set; } = new();
+        [Id(2)] public List<PaymentInfo> PeriodPayments { get; set; } = new();
 }

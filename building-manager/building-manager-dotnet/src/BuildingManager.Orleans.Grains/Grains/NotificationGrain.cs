@@ -5,10 +5,6 @@ using Orleans.Runtime;
 
 namespace BuildingManager.Orleans.Grains;
 
-/// <summary>
-/// Keeps at most <see cref="KeepLimit"/> notifications per user, dropping the
-/// oldest read ones first so unread items are never silently lost.
-/// </summary>
 public class NotificationGrain : Grain, INotificationGrain
 {
     public const int KeepLimit = 100;
@@ -76,8 +72,7 @@ public class NotificationGrain : Grain, INotificationGrain
         await _state.WriteStateAsync();
     }
 
-    /// <summary>Over the limit, drop the oldest read items; unread only when everything left is read.</summary>
-    private void Prune()
+        private void Prune()
     {
         while (_state.State.Items.Count > KeepLimit)
         {

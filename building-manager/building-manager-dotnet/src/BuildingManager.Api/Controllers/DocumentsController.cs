@@ -8,21 +8,14 @@ using Orleans;
 
 namespace BuildingManager.Api.Controllers;
 
-/// <summary>
-/// Building documents (UC-026): PDFs and images filed per building. Managers
-/// upload and see everything; other members see and download only documents
-/// shared with all owners.
-/// </summary>
 [ApiController]
 [Route("api/buildings/{buildingId}/documents")]
 [Authorize(Policy = AuthPolicies.BuildingAccess)]
 public class DocumentsController : ControllerBase
 {
-    /// <summary>One byte of headroom over the 25 MB document limit, for multipart framing.</summary>
-    private const long MaxRequestBytes = 26L * 1024 * 1024;
+        private const long MaxRequestBytes = 26L * 1024 * 1024;
 
-    /// <summary>PDF plus the image types phones and browsers produce.</summary>
-    private static readonly Dictionary<string, string> AllowedTypes = new(StringComparer.OrdinalIgnoreCase)
+        private static readonly Dictionary<string, string> AllowedTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         [".pdf"] = "application/pdf",
         [".png"] = "image/png",
@@ -45,11 +38,7 @@ public class DocumentsController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>
-    /// The building's documents, newest first. Managers get all of them;
-    /// everyone else only those shared with all owners.
-    /// </summary>
-    [HttpGet]
+        [HttpGet]
     public async Task<ActionResult<IEnumerable<DocumentInfo>>> GetDocuments(string buildingId)
     {
         var documents = await Grain(buildingId).GetDocumentsAsync();
@@ -66,7 +55,7 @@ public class DocumentsController : ControllerBase
         IFormFile file, [FromForm] DocumentFolder folder, [FromForm] DocumentAccessLevel accessLevel,
         [FromForm] string? description)
     {
-        // Browsers send the whole client path in some cases; only the name matters.
+
         var fileName = Path.GetFileName(file?.FileName ?? string.Empty).Trim();
         if (file is null || file.Length == 0 || string.IsNullOrEmpty(fileName))
             return BadRequestProblem("Choose a file to upload.");
@@ -90,7 +79,7 @@ public class DocumentsController : ControllerBase
             Folder = folder,
             AccessLevel = accessLevel,
             Description = description,
-            // The uploader is whoever is signed in, never what the client claims.
+
             UploadedBy = Guid.TryParse(User.FindFirst("sub")?.Value, out var userId) ? userId : Guid.Empty,
             UploadedByName = User.FindFirst("name")?.Value,
             UploadedAt = DateTime.UtcNow
@@ -102,7 +91,7 @@ public class DocumentsController : ControllerBase
         }
         catch
         {
-            // The grain rejected the record (quota or validation): don't leave an orphaned blob.
+
             try
             {
                 await _storage.DeleteAsync(buildingId, documentId);
@@ -117,8 +106,7 @@ public class DocumentsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, document);
     }
 
-    /// <summary>Streams the file. Owners can only download documents shared with all owners.</summary>
-    [HttpGet("{documentId:guid}/content")]
+        [HttpGet("{documentId:guid}/content")]
     public async Task<IActionResult> Download(string buildingId, Guid documentId)
     {
         var document = await Grain(buildingId).GetDocumentAsync(documentId);

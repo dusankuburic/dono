@@ -17,18 +17,18 @@ public class Resident : BaseEntity
     public bool IsActive { get; private set; } = true;
     public DateTime? MoveInDate { get; private set; }
     public DateTime? MoveOutDate { get; private set; }
-    
+
     public int MissedAssembliesCount { get; private set; }
     public bool IsUnavailableOwner => MissedAssembliesCount >= 3;
 
     private Resident() { }
 
-    public static Resident Create(Guid buildingId, Guid? unitId, string firstName, string lastName, 
+    public static Resident Create(Guid buildingId, Guid? unitId, string firstName, string lastName,
         ResidentRole role, decimal? ownershipShare = null)
     {
         if (string.IsNullOrWhiteSpace(firstName))
             throw new ArgumentException("First name is required", nameof(firstName));
-        
+
         if (string.IsNullOrWhiteSpace(lastName))
             throw new ArgumentException("Last name is required", nameof(lastName));
 
@@ -62,7 +62,7 @@ public class Resident : BaseEntity
     {
         if (share < 0 || share > 100)
             throw new ArgumentException("Ownership share must be between 0 and 100", nameof(share));
-        
+
         OwnershipShare = share;
         MarkAsUpdated();
     }

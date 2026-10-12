@@ -6,10 +6,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// Announcements on the building grain: validation, scheduled publication,
-/// pinning, archiving and the managers' history.
-/// </summary>
 public class AnnouncementClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -104,8 +100,7 @@ public class AnnouncementClusterTests : IClassFixture<ClusterFixture>
         await grain.CreateAnnouncementAsync(notice);
 
         await grain.ArchiveAnnouncementAsync(notice.Id);
-        // Creating another announcement prunes old entries; an archived
-        // (expired) one must survive that to remain on record.
+
         await grain.CreateAnnouncementAsync(Announcement("Next notice"));
 
         (await grain.GetAnnouncementsAsync()).Should().NotContain(a => a.Id == notice.Id);

@@ -13,22 +13,22 @@ public class Building : BaseEntity
     public bool HasParking { get; private set; }
     public decimal TotalAreaM2 { get; private set; }
     public BuildingStatus Status { get; private set; } = BuildingStatus.Active;
-    
+
     public bool IsLegalEntity { get; private set; }
     public string? LegalEntityName { get; private set; }
     public string? MbNumber { get; private set; }
     public string? Pib { get; private set; }
     public string? BankAccount { get; private set; }
     public DateTime? RegistrationDate { get; private set; }
-    
+
     public ManagerType ManagerType { get; private set; } = ManagerType.Regular;
     public Guid? ManagerId { get; private set; }
     public string? ManagerLicenseNumber { get; private set; }
     public DateTime? ManagerAssignedDate { get; private set; }
-    
+
     private readonly List<Unit> _units = new();
     public IReadOnlyCollection<Unit> Units => _units.AsReadOnly();
-    
+
     private readonly List<Resident> _residents = new();
     public IReadOnlyCollection<Resident> Residents => _residents.AsReadOnly();
 
@@ -38,7 +38,7 @@ public class Building : BaseEntity
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Building name is required", nameof(name));
-        
+
         return new Building
         {
             Name = name,
@@ -85,7 +85,7 @@ public class Building : BaseEntity
     {
         if (_units.Any(u => u.Number == unit.Number))
             throw new InvalidOperationException($"Unit with number {unit.Number} already exists");
-        
+
         _units.Add(unit);
         MarkAsUpdated();
     }

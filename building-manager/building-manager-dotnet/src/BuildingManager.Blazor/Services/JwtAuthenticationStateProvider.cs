@@ -4,11 +4,6 @@ using Microsoft.AspNetCore.Components.Authorization;
 
 namespace BuildingManager.Blazor.Services;
 
-/// <summary>
-/// Builds the client-side authentication state from the JWT stored in local
-/// storage. Signature validation is not possible (nor needed) here: the API
-/// validates the token on every call; this only drives the UI.
-/// </summary>
 public class JwtAuthenticationStateProvider : AuthenticationStateProvider
 {
     private readonly ILocalStorageService _localStorage;
@@ -32,8 +27,7 @@ public class JwtAuthenticationStateProvider : AuthenticationStateProvider
             if (JwtParser.IsExpired(claims)
                 && !await _localStorage.ContainKeyAsync(AuthService.RefreshTokenStorageKey))
             {
-                // With a refresh token the user stays signed in: the first API
-                // call gets a 401 and AuthorizationMessageHandler refreshes.
+
                 await _localStorage.RemoveItemAsync(AuthService.TokenStorageKey);
                 return Anonymous();
             }

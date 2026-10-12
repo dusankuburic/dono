@@ -25,7 +25,7 @@ public class PasswordHasherTests
     [Fact]
     public void Same_Password_Produces_Different_Hashes()
     {
-        // Random salts must make hashes unique.
+
         var first = PasswordHasher.Hash("S3curePass!");
         var second = PasswordHasher.Hash("S3curePass!");
 

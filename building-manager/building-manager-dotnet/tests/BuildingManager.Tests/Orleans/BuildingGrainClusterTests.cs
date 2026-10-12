@@ -6,11 +6,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// Grain-level integration tests running against an in-process Orleans cluster.
-/// These exercise the full invocation pipeline (serialization, activation,
-/// state round-trips) rather than just the domain logic.
-/// </summary>
 public class BuildingGrainClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -87,8 +82,7 @@ public class BuildingGrainClusterTests : IClassFixture<ClusterFixture>
     [Fact]
     public async Task List_Endpoints_Return_Materialized_Collections()
     {
-        // Regression test: returning lazy LINQ iterators from grain methods
-        // fails with CodecNotFoundException at invocation time.
+
         var grain = GetBuildingGrain();
         await grain.InitializeAsync(BuildingInfo());
         await grain.AddOrUpdateUnitAsync(UnitInfo("1", 50m, 5m));
@@ -222,7 +216,6 @@ public class BuildingGrainClusterTests : IClassFixture<ClusterFixture>
         await grain.InitializeAsync(BuildingInfo());
         var now = DateTime.UtcNow;
 
-        // No fee structure yet: nothing outstanding.
         (await grain.GetFinancialSummaryAsync()).OutstandingReceivables.Should().Be(0);
 
         await grain.AddOrUpdateUnitAsync(UnitInfo("1", 100m, 10m));
@@ -235,11 +228,9 @@ public class BuildingGrainClusterTests : IClassFixture<ClusterFixture>
             EffectiveFrom = now
         });
 
-        // Expected: (200 + 10*100) + (200 + 10*50) = 1200 + 700 = 1900.
         var beforePayment = await grain.GetFinancialSummaryAsync();
         beforePayment.OutstandingReceivables.Should().Be(1900m);
 
-        // Unit 1 pays its full 1200 this month: only unit 2 remains outstanding.
         await grain.RecordPaymentAsync(new PaymentInfo
         {
             Id = Guid.NewGuid(),
@@ -271,7 +262,6 @@ public class BuildingGrainClusterTests : IClassFixture<ClusterFixture>
             EffectiveFrom = now
         });
 
-        // Received now, but for last month's fee: this month is still owed.
         await grain.RecordPaymentAsync(new PaymentInfo
         {
             Id = Guid.NewGuid(), UnitNumber = "1", Amount = 1200m,
@@ -279,7 +269,6 @@ public class BuildingGrainClusterTests : IClassFixture<ClusterFixture>
         });
         (await grain.GetFinancialSummaryAsync()).OutstandingReceivables.Should().Be(1200m);
 
-        // Received last month, in advance for this month's fee: now paid.
         var advance = new PaymentInfo
         {
             Id = Guid.NewGuid(), UnitNumber = "1", Amount = 1200m,
@@ -289,10 +278,9 @@ public class BuildingGrainClusterTests : IClassFixture<ClusterFixture>
 
         var summary = await grain.GetFinancialSummaryAsync();
         summary.OutstandingReceivables.Should().Be(0m);
-        // Income is by received date and counts each payment once.
+
         summary.TotalIncome.Should().Be(2400m);
 
-        // A retried call with the same payment id is not counted twice.
         await grain.RecordPaymentAsync(advance);
         (await grain.GetFinancialSummaryAsync()).TotalIncome.Should().Be(2400m);
     }

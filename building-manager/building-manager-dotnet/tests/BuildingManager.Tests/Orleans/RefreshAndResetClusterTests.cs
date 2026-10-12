@@ -11,9 +11,6 @@ using Xunit;
 
 namespace BuildingManager.Tests.Orleans;
 
-/// <summary>
-/// Refresh-token rotation and password-reset flows on the real grains.
-/// </summary>
 public class RefreshAndResetClusterTests : IClassFixture<ClusterFixture>
 {
     private readonly ClusterFixture _fixture;
@@ -64,16 +61,13 @@ public class RefreshAndResetClusterTests : IClassFixture<ClusterFixture>
 
         await session.SetRefreshTokenAsync(first);
 
-        // Correct secret rotates; the session stays valid and is extended.
         (await session.TryRotateRefreshTokenAsync(first, second, DateTime.UtcNow.AddDays(7)))
             .Should().BeTrue();
         (await session.ValidateSessionAsync()).Should().BeTrue();
 
-        // Replaying the already-used token must fail (one-time use).
         (await session.TryRotateRefreshTokenAsync(first, third, DateTime.UtcNow.AddDays(7)))
             .Should().BeFalse();
 
-        // The rotated token keeps working.
         (await session.TryRotateRefreshTokenAsync(second, third, DateTime.UtcNow.AddDays(7)))
             .Should().BeTrue();
     }
@@ -81,8 +75,7 @@ public class RefreshAndResetClusterTests : IClassFixture<ClusterFixture>
     [Fact]
     public async Task Refresh_Token_Hash_Is_Persisted_Not_Just_Held_In_Memory()
     {
-        // Session grains are deactivated when idle; a hash only in memory
-        // would be lost and the refresh token would stop working.
+
         var session = await StartedSession();
         var hash = TokenHasher.Hash(TokenHasher.Generate());
 
@@ -144,11 +137,9 @@ public class RefreshAndResetClusterTests : IClassFixture<ClusterFixture>
         var token = await GrainFactory.GetGrain<IUserGrain>(email).CreatePasswordResetTokenAsync();
         token.Should().NotBeNullOrEmpty();
 
-        // Wrong token is rejected.
         (await GrainFactory.GetGrain<IUserGrain>(email).ResetPasswordAsync("wrong-token", "NewPass456!"))
             .Should().BeFalse();
 
-        // Correct token resets the password...
         (await GrainFactory.GetGrain<IUserGrain>(email).ResetPasswordAsync(token!, "NewPass456!"))
             .Should().BeTrue();
 
@@ -156,7 +147,6 @@ public class RefreshAndResetClusterTests : IClassFixture<ClusterFixture>
         (await user.ValidatePasswordAsync("OldPass123!")).Should().BeFalse();
         (await user.ValidatePasswordAsync("NewPass456!")).Should().BeTrue();
 
-        // ...and the token is single-use.
         (await user.ResetPasswordAsync(token!, "AgainPass78!")).Should().BeFalse();
     }
 
@@ -184,8 +174,7 @@ public class RefreshAndResetClusterTests : IClassFixture<ClusterFixture>
     [Fact]
     public async Task Reset_Token_Expires()
     {
-        // One-hour expiry is enforced by the grain's clock; simulate expiry by
-        // creating a token and verifying a second token is always different.
+
         var email = $"expiry-{Guid.NewGuid():N}@example.com";
         await RegisteredUser(email);
         var grain = GrainFactory.GetGrain<IUserGrain>(email);
@@ -194,7 +183,7 @@ public class RefreshAndResetClusterTests : IClassFixture<ClusterFixture>
         var second = await grain.CreatePasswordResetTokenAsync();
 
         first.Should().NotBe(second, "each request must generate a fresh token");
-        // The second token replaced the first: only the newest can reset.
+
         (await grain.ResetPasswordAsync(first!, "NewPass456!")).Should().BeFalse();
         (await grain.ResetPasswordAsync(second!, "NewPass456!")).Should().BeTrue();
     }

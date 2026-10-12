@@ -2,12 +2,6 @@ using Orleans;
 
 namespace BuildingManager.Orleans.Interfaces;
 
-/// <summary>
-/// Reverse index of building access, keyed by building id: which accounts may
-/// access the building. The authority is IUserGrain (what the API enforces);
-/// UserGrain keeps this index in sync on every grant/revoke so managers can
-/// list a building's members without scanning all users.
-/// </summary>
 public interface IBuildingAccessGrain : IGrainWithStringKey
 {
     Task AddMemberAsync(string email);
@@ -15,7 +9,6 @@ public interface IBuildingAccessGrain : IGrainWithStringKey
     Task<List<string>> GetMemberEmailsAsync();
 }
 
-/// <summary>A user with access to a building, as listed to its managers.</summary>
 [GenerateSerializer]
 public record BuildingMember
 {

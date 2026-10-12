@@ -182,7 +182,6 @@ else
             publishAt = DateTime.SpecifyKind(day.Date + time, DateTimeKind.Local).ToUniversalTime();
         }
 
-        // "Show until" a day means through the end of that day, local time.
         DateTime? expiresAt = _showUntil is { } until
             ? DateTime.SpecifyKind(until.Date.AddDays(1), DateTimeKind.Local).ToUniversalTime()
             : null;

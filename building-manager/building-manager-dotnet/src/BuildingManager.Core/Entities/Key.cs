@@ -10,10 +10,10 @@ public class Key : BaseEntity
     public string Identifier { get; private set; } = string.Empty;
     public KeyStatus Status { get; private set; } = KeyStatus.Available;
     public string? Description { get; private set; }
-    
+
     private readonly List<KeyTransaction> _transactions = new();
     public IReadOnlyCollection<KeyTransaction> Transactions => _transactions.AsReadOnly();
-    
+
     public KeyTransaction? CurrentCheckout => _transactions
         .Where(t => t.ReturnedAt == null)
         .OrderByDescending(t => t.CheckedOutAt)
@@ -43,7 +43,7 @@ public class Key : BaseEntity
         MarkAsUpdated();
     }
 
-    public KeyTransaction Checkout(string recipientName, RecipientType recipientType, string purpose, 
+    public KeyTransaction Checkout(string recipientName, RecipientType recipientType, string purpose,
         DateTime expectedReturn, string? recipientPhone = null, Guid? recipientResidentId = null)
     {
         if (Status != KeyStatus.Available)
@@ -51,11 +51,11 @@ public class Key : BaseEntity
 
         var transaction = KeyTransaction.Create(
             Id, recipientName, recipientType, purpose, expectedReturn, recipientPhone, recipientResidentId);
-        
+
         _transactions.Add(transaction);
         Status = KeyStatus.CheckedOut;
         MarkAsUpdated();
-        
+
         return transaction;
     }
 

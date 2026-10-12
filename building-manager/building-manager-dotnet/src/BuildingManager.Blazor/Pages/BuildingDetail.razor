@@ -155,7 +155,6 @@ else
             var units = await BuildingService.GetUnitsAsync(BuildingId);
             _units = units.ToList();
 
-            // Viewing a building makes it the active one for the other pages.
             if (_summary is not null)
             {
                 await BuildingSelection.SetSelectedBuildingIdAsync(BuildingId);

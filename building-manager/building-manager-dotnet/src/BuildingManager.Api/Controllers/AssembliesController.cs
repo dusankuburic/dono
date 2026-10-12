@@ -10,11 +10,6 @@ using Orleans;
 
 namespace BuildingManager.Api.Controllers;
 
-/// <summary>
-/// Owners' assemblies of a building. Anyone with access to the building can
-/// read them (owners see agendas, results and minutes); only management roles
-/// run them. Every mutation returns the updated assembly.
-/// </summary>
 [ApiController]
 [Authorize(Policy = AuthPolicies.BuildingAccess)]
 [Route("api/buildings/{buildingId}/assemblies")]
@@ -32,8 +27,6 @@ public class AssembliesController : ControllerBase
         _reports = reports;
     }
 
-    // The building is part of the grain key, so an assembly id from another
-    // building resolves to an empty grain (404) instead of leaking data.
     private IAssemblyGrain Grain(string buildingId, Guid assemblyId) =>
         _grainFactory.GetGrain<IAssemblyGrain>($"{buildingId}|{assemblyId}");
 
@@ -51,7 +44,7 @@ public class AssembliesController : ControllerBase
             }
             catch (KeyNotFoundException)
             {
-                // Registered but never written (scheduling failed): skip it.
+
             }
         }
 
@@ -66,7 +59,7 @@ public class AssembliesController : ControllerBase
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     public async Task<ActionResult<AssemblyDetails>> Schedule(string buildingId, [FromBody] ScheduleAssemblyRequest request)
     {
-        // Repeated sessions go through /repeat so their link is validated.
+
         var details = await ScheduleNew(buildingId, request with
         {
             SessionType = SessionType.First,
@@ -75,8 +68,7 @@ public class AssembliesController : ControllerBase
         return CreatedAtAction(nameof(Get), new { buildingId, assemblyId = details.Id }, details);
     }
 
-    /// <summary>Schedules the repeated session of a first session that did not reach quorum, with the same agenda.</summary>
-    [HttpPost("{assemblyId:guid}/repeat")]
+        [HttpPost("{assemblyId:guid}/repeat")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     public async Task<ActionResult<AssemblyDetails>> Repeat(string buildingId, Guid assemblyId, [FromBody] RepeatAssemblyRequest request)
     {
@@ -124,8 +116,7 @@ public class AssembliesController : ControllerBase
     public Task<AssemblyDetails> RecordAttendance(string buildingId, Guid assemblyId, [FromBody] AttendanceDraft attendance) =>
         Mutate(buildingId, assemblyId, g => g.RecordAttendanceAsync(attendance));
 
-    /// <summary>The unit goes in the query string: unit numbers may contain characters awkward in a path.</summary>
-    [HttpDelete("{assemblyId:guid}/attendance")]
+        [HttpDelete("{assemblyId:guid}/attendance")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     public Task<AssemblyDetails> RemoveAttendance(string buildingId, Guid assemblyId, [FromQuery, Required] string unit) =>
         Mutate(buildingId, assemblyId, g => g.RemoveAttendanceAsync(unit));
@@ -155,8 +146,7 @@ public class AssembliesController : ControllerBase
     public Task<AssemblyDetails> Cancel(string buildingId, Guid assemblyId) =>
         Mutate(buildingId, assemblyId, g => g.CancelAsync());
 
-    /// <summary>The formal notice, printable for physical posting (UC-007).</summary>
-    [HttpGet("{assemblyId:guid}/notice/pdf")]
+        [HttpGet("{assemblyId:guid}/notice/pdf")]
     public async Task<IActionResult> NoticePdf(string buildingId, Guid assemblyId)
     {
         var (building, assembly) = await AssemblyWithBuildingAsync(buildingId, assemblyId);
@@ -164,8 +154,7 @@ public class AssembliesController : ControllerBase
             $"assembly-notice-{assembly.Date:yyyy-MM-dd}.pdf");
     }
 
-    /// <summary>The minutes as a PDF (UC-006); printable for signature and archiving.</summary>
-    [HttpGet("{assemblyId:guid}/minutes/pdf")]
+        [HttpGet("{assemblyId:guid}/minutes/pdf")]
     public async Task<IActionResult> MinutesPdf(string buildingId, Guid assemblyId)
     {
         var (building, assembly) = await AssemblyWithBuildingAsync(buildingId, assemblyId);
@@ -182,7 +171,7 @@ public class AssembliesController : ControllerBase
 
     private async Task<AssemblyDetails> ScheduleNew(string buildingId, ScheduleAssemblyRequest request)
     {
-        // The assembly needs an initialized building for its units and shares.
+
         await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetSummaryAsync();
 
         var details = await Grain(buildingId, Guid.NewGuid()).ScheduleAsync(request with
@@ -190,8 +179,6 @@ public class AssembliesController : ControllerBase
             CreatedBy = User.FindFirst("email")?.Value
         });
 
-        // UC-007: members are told in-app that an assembly is scheduled
-        // (email/SMS delivery of the formal notice is a later phase).
         var session = details.SessionType == SessionType.Repeated ? "Repeated assembly" : "Owners' assembly";
         await _notifications.NotifyBuildingMembersAsync(buildingId, NotificationType.Assembly,
             $"{session} on {details.Date.ToLocalTime():ddd, d MMM yyyy, HH:mm}",
@@ -210,11 +197,9 @@ public class AssembliesController : ControllerBase
 
 public record RepeatAssemblyRequest
 {
-    /// <summary>Date and time of the repeated session (UTC).</summary>
-    public DateTime Date { get; init; }
+        public DateTime Date { get; init; }
 
-    /// <summary>Defaults to the first session's location.</summary>
-    [MaxLength(200)]
+        [MaxLength(200)]
     public string? Location { get; init; }
 
     public bool AllowShortNotice { get; init; }
@@ -222,8 +207,7 @@ public record RepeatAssemblyRequest
 
 public record NoticeRequest
 {
-    /// <summary>The notice was also posted in the building (legal proof).</summary>
-    public bool PhysicallyPosted { get; init; }
+        public bool PhysicallyPosted { get; init; }
 }
 
 public record VoteRequest

@@ -114,11 +114,9 @@ else
     private int _year = DateTime.Today.Year;
     private int _month = DateTime.Today.Month;
 
-    // Unit payment history shown under the fee table.
     private string? _historyUnit;
     private List<PaymentInfo>? _history;
 
-    // Record payment form.
     private bool _paymentFormOpen;
     private string? _payUnit;
     private decimal _payAmount;
@@ -130,7 +128,6 @@ else
     private string? _payNotes;
     private string? _payError;
 
-    // Record expense form.
     private ExpenseCategory _expCategory = ExpenseCategory.Maintenance;
     private decimal _expAmount;
     private string _expDescription = string.Empty;
@@ -138,7 +135,6 @@ else
     private DateTime? _expDate = DateTime.Today;
     private string? _expError;
 
-    // Fee settings form.
     private string _feeName = "Standard";
     private decimal _amountPerM2;
     private decimal? _fixedAmount;
@@ -146,7 +142,6 @@ else
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
 
-    /// <summary>Advance payments may be recorded for next month, not further ahead.</summary>
     private bool IsNextMonthBeyondLimit => new DateTime(_year, _month, 1) >= new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1).AddMonths(1);
 
     protected override async Task OnInitializedAsync()
@@ -199,7 +194,6 @@ else
         _busy = false;
     }
 
-    /// <summary>The visible fee status as a server-generated file (own units only for owners).</summary>
     private Task DownloadStatusPdf() => DownloadStatus(
         (b, y, m) => ReportService.GetFeeStatusPdfAsync(b, y, m));
 
@@ -268,7 +262,7 @@ else
         _busy = true;
         try
         {
-            // UC-008: warn before saving what looks like the same payment twice.
+
             var earlier = await FinanceService.GetUnitPaymentsAsync(_buildingId!, _payUnit);
             var duplicate = earlier.FirstOrDefault(p => p.Amount == _payAmount && p.Year == _payYear && p.Month == _payMonth);
             if (duplicate is not null && await DialogService.ShowMessageBox("Possible duplicate",
@@ -279,7 +273,6 @@ else
                 return;
             }
 
-            // Noon local time keeps the chosen day when converted to UTC.
             var receivedUtc = DateTime.SpecifyKind(received.Date.AddHours(12), DateTimeKind.Local).ToUniversalTime();
             await FinanceService.RecordPaymentAsync(_buildingId!, new PaymentDraft(
                 Guid.NewGuid(), _payUnit, _payAmount, _payYear, _payMonth, receivedUtc, _payMethod,
