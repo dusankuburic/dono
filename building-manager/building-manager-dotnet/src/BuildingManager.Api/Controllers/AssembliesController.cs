@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using BuildingManager.Api.Authorization;
+using BuildingManager.Api.Services;
 using BuildingManager.Core.Enums;
 using BuildingManager.Orleans.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -19,10 +20,12 @@ namespace BuildingManager.Api.Controllers;
 public class AssembliesController : ControllerBase
 {
     private readonly IGrainFactory _grainFactory;
+    private readonly INotificationDispatcher _notifications;
 
-    public AssembliesController(IGrainFactory grainFactory)
+    public AssembliesController(IGrainFactory grainFactory, INotificationDispatcher notifications)
     {
         _grainFactory = grainFactory;
+        _notifications = notifications;
     }
 
     // The building is part of the grain key, so an assembly id from another
@@ -153,10 +156,19 @@ public class AssembliesController : ControllerBase
         // The assembly needs an initialized building for its units and shares.
         await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetSummaryAsync();
 
-        return await Grain(buildingId, Guid.NewGuid()).ScheduleAsync(request with
+        var details = await Grain(buildingId, Guid.NewGuid()).ScheduleAsync(request with
         {
             CreatedBy = User.FindFirst("email")?.Value
         });
+
+        // UC-007: members are told in-app that an assembly is scheduled
+        // (email/SMS delivery of the formal notice is a later phase).
+        var session = details.SessionType == SessionType.Repeated ? "Repeated assembly" : "Owners' assembly";
+        await _notifications.NotifyBuildingMembersAsync(buildingId, NotificationType.Assembly,
+            $"{session} on {details.Date.ToLocalTime():ddd, d MMM yyyy, HH:mm}",
+            details.Location, "/assemblies", User.FindFirst("email")?.Value);
+
+        return details;
     }
 
     private async Task<AssemblyDetails> Mutate(string buildingId, Guid assemblyId, Func<IAssemblyGrain, Task> action)

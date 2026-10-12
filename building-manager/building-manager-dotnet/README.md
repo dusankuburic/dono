@@ -166,6 +166,23 @@ and expired items. Unpinned announcements are pruned after 12 months. The
 author is taken from the signed-in account. Delivery by SMS/email/push and
 recipient selection are not implemented yet.
 
+### Notifications
+
+In-app notifications (the bell in the header, `/api/notifications`): a
+per-user grain keyed by the account email keeps the last 100 (dropping the
+oldest read ones first). Members are notified when an announcement reaches
+the feed, when the status of their work order changes (matched by the
+reporting resident's email) and when an assembly is scheduled or repeated.
+Endpoints: `GET /api/notifications?limit=`, `GET unread-count`,
+`PUT {id}/read`, `PUT read-all`.
+
+Email and SMS go through `IEmailSender`/`ISmsSender`. By default both log
+instead of sending (reset emails print the token). Configure Azure
+Communication Services to send for real: `Email:ConnectionString` +
+`Email:SenderAddress` (verified sender) and `Sms:ConnectionString` +
+`Sms:From` (E.164; SMS costs apply). Email/SMS fan-out on events, delivery
+preferences and quiet hours are not implemented yet.
+
 ### Documents
 
 `/api/buildings/{id}/documents` (Blazor: **Documents**). Managers upload

@@ -1,0 +1,135 @@
+@page "/notifications"
+@inject INotificationService NotificationService
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>Notifications</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+    <MudText Typo="Typo.h3">Notifications</MudText>
+    @if (_notifications?.Any(n => !n.IsRead) == true)
+    {
+        <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="MarkAllRead">Mark all read</MudButton>
+    }
+</MudStack>
+
+@if (_error is not null && _notifications is null)
+{
+    <MudAlert Severity="Severity.Error">@_error</MudAlert>
+}
+else if (_notifications is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
+    }
+
+    @if (_notifications.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">No notifications yet. Announcements, work order updates and assembly scheduling will show up here.</MudAlert>
+    }
+    else
+    {
+        foreach (var notification in _notifications)
+        {
+            var (icon, color) = NotificationLabels.Icon(notification.Type);
+            <MudPaper Class="pa-3 mb-2" Elevation="@(notification.IsRead ? 0 : 2)"
+                      Style="@($"border-left: 6px solid var(--mud-palette-{(notification.IsRead ? "lines-default" : "primary")}); cursor: {(notification.Link is null ? "default" : "pointer")};")"
+                      @onclick="@(() => Open(notification))">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3">
+                    <MudIcon Icon="@icon" Color="@color" />
+                    <MudStack Spacing="0" Class="flex-grow-1">
+                        <MudText Typo="Typo.body1">@notification.Title</MudText>
+                        @if (notification.Body is not null)
+                        {
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">@notification.Body</MudText>
+                        }
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@Local(notification.CreatedAt)</MudText>
+                    </MudStack>
+                    @if (!notification.IsRead)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.Circle" Size="Size.Small" Color="Color.Primary" Title="Unread" Style="font-size: 10px;" />
+                    }
+                </MudStack>
+            </MudPaper>
+        }
+    }
+}
+
+@code {
+    private List<NotificationInfo>? _notifications;
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    private async Task Reload()
+    {
+        try
+        {
+            _notifications = await NotificationService.GetRecentAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private static string Local(DateTime utc) => utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+
+    /// <summary>Opens the related page and marks the notification as read.</summary>
+    private async Task Open(NotificationInfo notification)
+    {
+        if (!notification.IsRead)
+        {
+            _busy = true;
+            try
+            {
+                await NotificationService.MarkReadAsync(notification.Id);
+                var index = _notifications!.FindIndex(n => n.Id == notification.Id);
+                if (index >= 0)
+                {
+                    _notifications[index] = notification with { IsRead = true };
+                }
+            }
+            catch (Exception ex)
+            {
+                _error = ex.Message;
+                _busy = false;
+                return;
+            }
+            finally
+            {
+                _busy = false;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(notification.Link))
+        {
+            Navigation.NavigateTo(notification.Link);
+        }
+    }
+
+    private async Task MarkAllRead()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await NotificationService.MarkAllReadAsync();
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

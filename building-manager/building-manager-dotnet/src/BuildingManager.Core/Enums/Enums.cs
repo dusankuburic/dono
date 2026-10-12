@@ -211,3 +211,13 @@ public enum DocumentAccessLevel
     ManagersOnly = 1,
     AllOwners = 2
 }
+
+public enum NotificationType
+{
+    Announcement = 1,
+    WorkOrder = 2,
+    Assembly = 3,
+    Payment = 4,
+    Document = 5,
+    System = 6
+}

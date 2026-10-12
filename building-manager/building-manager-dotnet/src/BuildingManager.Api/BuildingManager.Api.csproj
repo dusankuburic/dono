@@ -21,6 +21,8 @@
     <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="AspNetCore.HealthChecks.UI" />
     <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
+    <PackageReference Include="Azure.Communication.Email" />
+    <PackageReference Include="Azure.Communication.Sms" />
   </ItemGroup>
 
 </Project>

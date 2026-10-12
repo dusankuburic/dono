@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using BuildingManager.Api.Authorization;
+using BuildingManager.Api.Services;
 using BuildingManager.Core.Enums;
 using BuildingManager.Orleans.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -14,10 +15,12 @@ namespace BuildingManager.Api.Controllers;
 public class BuildingsController : ControllerBase
 {
     private readonly IGrainFactory _grainFactory;
+    private readonly INotificationDispatcher _notifications;
 
-    public BuildingsController(IGrainFactory grainFactory)
+    public BuildingsController(IGrainFactory grainFactory, INotificationDispatcher notifications)
     {
         _grainFactory = grainFactory;
+        _notifications = notifications;
     }
 
     /// <summary>
@@ -235,7 +238,24 @@ public class BuildingsController : ControllerBase
         [FromBody] UpdateWorkOrderStatusRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
+        var before = (await grain.GetWorkOrdersAsync()).FirstOrDefault(w => w.Id == workOrderId)
+            ?? throw new KeyNotFoundException($"Work order '{workOrderId}' not found");
         var result = await grain.UpdateWorkOrderStatusAsync(workOrderId, request.Status, request.Notes);
+
+        // UC-004: the resident is told when the status of their request changes.
+        if (before.Status != result.Status)
+        {
+            var reporter = (await grain.GetResidentsAsync())
+                .FirstOrDefault(r => r.Id == result.ReportedByResidentId);
+            if (reporter?.Email is { Length: > 0 } email)
+            {
+                await _notifications.NotifyEmailAsync(email, NotificationType.WorkOrder,
+                    $"Work order {result.ReferenceNumber}: {result.Status}",
+                    string.IsNullOrWhiteSpace(request.Notes) ? result.Title : request.Notes.Trim(),
+                    "/workorders", buildingId, User.FindFirst("email")?.Value);
+            }
+        }
+
         return Ok(result);
     }
 
@@ -269,7 +289,24 @@ public class BuildingsController : ControllerBase
             CreatedByName = User.FindFirst("name")?.Value
         };
         await grain.CreateAnnouncementAsync(announcement);
+
+        // UC-005: members are notified in-app when it reaches the feed (a
+        // scheduled announcement will be visible from the feed once due).
+        if (announcement.ScheduledFor is not { } scheduledFor || scheduledFor <= DateTime.UtcNow)
+        {
+            await _notifications.NotifyBuildingMembersAsync(buildingId, NotificationType.Announcement,
+                $"Announcement: {request.Title.Trim()}", Preview(request.Content), "/announcements",
+                User.FindFirst("email")?.Value);
+        }
+
         return StatusCode(StatusCodes.Status201Created, announcement);
+    }
+
+    /// <summary>The first line or so of the message, enough to recognize it in the bell list.</summary>
+    private static string? Preview(string content)
+    {
+        var trimmed = content.Trim();
+        return trimmed.Length <= 150 ? trimmed : trimmed[..147] + "…";
     }
 
     /// <summary>All kept announcements, including scheduled, expired and archived ones.</summary>

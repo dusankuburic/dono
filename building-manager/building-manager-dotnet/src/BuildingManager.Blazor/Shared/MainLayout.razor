@@ -2,6 +2,8 @@
 @inject IBuildingService BuildingService
 @inject IBuildingSelectionService BuildingSelection
 @inject IAuthService AuthService
+@inject INotificationService NotificationService
+@inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Navigation
 
 <MudThemeProvider @ref="_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" />
@@ -34,6 +36,11 @@
 
         <AuthorizeView>
             <Authorized>
+                <MudBadge Badge="@_unreadNotifications" Color="Color.Error" Max="9" Overlap="true"
+                          Visible="@(_unreadNotifications > 0)" Class="mr-2">
+                    <MudIconButton Icon="@Icons.Material.Filled.Notifications" Color="Color.Inherit"
+                                   Title="Notifications" Href="/notifications" />
+                </MudBadge>
                 <MudIcon Icon="@Icons.Material.Filled.AccountCircle" Class="mr-2" />
                 <MudText Typo="Typo.body2" Class="mr-2">@context.User.Identity?.Name</MudText>
                 <MudIconButton Icon="@Icons.Material.Filled.Password" Color="Color.Inherit" Title="Change password"
@@ -75,6 +82,8 @@
     private bool _drawerOpen = true;
     private List<BuildingSummary> _buildings = new();
     private string? _selectedBuildingId;
+    private int _unreadNotifications;
+    private PeriodicTimer? _notificationTimer;
 
     protected override async Task OnInitializedAsync()
     {
@@ -88,6 +97,12 @@
             // The API is unreachable; the selector stays hidden and pages show
             // their own error state.
         }
+
+        // The bell's unread badge: check right away, then once a minute. Skips
+        // the API call while signed out and ignores errors (the badge is not
+        // worth failing anything over).
+        _notificationTimer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        _ = PollNotificationsAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -97,6 +112,42 @@
             _isDarkMode = await _mudThemeProvider.GetSystemPreference();
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private async Task PollNotificationsAsync()
+    {
+        await RefreshUnreadCountAsync();
+        while (_notificationTimer is not null && await _notificationTimer.WaitForNextTickAsync())
+        {
+            await RefreshUnreadCountAsync();
+        }
+    }
+
+    private async Task RefreshUnreadCountAsync()
+    {
+        try
+        {
+            var state = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (state.User.Identity?.IsAuthenticated != true)
+            {
+                SetUnread(0);
+                return;
+            }
+
+            SetUnread(await NotificationService.GetUnreadCountAsync());
+        }
+        catch
+        {
+            // Signed out (refresh failed) or API down: keep the last badge.
+        }
+    }
+
+    private void SetUnread(int count)
+    {
+        if (_unreadNotifications == count)
+            return;
+        _unreadNotifications = count;
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private async Task OnBuildingChanged(string? buildingId)

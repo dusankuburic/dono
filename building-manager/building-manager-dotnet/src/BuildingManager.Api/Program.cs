@@ -159,7 +159,32 @@ builder.Services.AddCors(options =>
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
-builder.Services.AddSingleton<IEmailSender, DevLoggingEmailSender>();
+// Email/SMS: dev loggers by default; real senders (Azure Communication
+// Services) when connection details are configured. Email:SenderAddress must
+// be verified in the ACS resource; SMS uses E.164 numbers and costs apply.
+var emailConnection = builder.Configuration["Email:ConnectionString"];
+var emailSenderAddress = builder.Configuration["Email:SenderAddress"];
+if (!string.IsNullOrEmpty(emailConnection) && !string.IsNullOrEmpty(emailSenderAddress))
+{
+    builder.Services.AddSingleton<IEmailSender>(new AcsEmailSender(emailConnection, emailSenderAddress));
+}
+else
+{
+    builder.Services.AddSingleton<IEmailSender, DevLoggingEmailSender>();
+}
+
+var smsConnection = builder.Configuration["Sms:ConnectionString"];
+var smsFrom = builder.Configuration["Sms:From"];
+if (!string.IsNullOrEmpty(smsConnection) && !string.IsNullOrEmpty(smsFrom))
+{
+    builder.Services.AddSingleton<ISmsSender>(new AcsSmsSender(smsConnection, smsFrom));
+}
+else
+{
+    builder.Services.AddSingleton<ISmsSender, DevLoggingSmsSender>();
+}
+
+builder.Services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
 builder.Services.AddHostedService<AdminSeeder>();
 
 // Document content lives in blob storage (Azurite locally, Azure Blob in production).

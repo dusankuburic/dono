@@ -2,10 +2,13 @@ namespace BuildingManager.Api.Services;
 
 /// <summary>
 /// Outbound email abstraction. The dev implementation logs instead of sending;
-/// production should register a real sender (SMTP, SendGrid, ...).
+/// production registers AcsEmailSender (or any SMTP/SendGrid sender) when
+/// Email:ConnectionString and Email:SenderAddress are configured.
 /// </summary>
 public interface IEmailSender
 {
+    Task SendAsync(string toEmail, string subject, string plainBody, string? htmlBody = null);
+
     Task SendPasswordResetEmailAsync(string email, string resetToken);
 }
 
@@ -18,11 +21,14 @@ public class DevLoggingEmailSender : IEmailSender
         _logger = logger;
     }
 
-    public Task SendPasswordResetEmailAsync(string email, string resetToken)
+    public Task SendAsync(string toEmail, string subject, string plainBody, string? htmlBody = null)
     {
-        _logger.LogInformation(
-            "DEV EMAIL to {Email}: password reset requested. Token: {Token} (valid 1 hour)",
-            email, resetToken);
+        _logger.LogInformation("DEV EMAIL to {Email} — {Subject}: {Body}", toEmail, subject, plainBody);
         return Task.CompletedTask;
     }
+
+    public Task SendPasswordResetEmailAsync(string email, string resetToken) =>
+        SendAsync(email, "Reset your Building Manager password",
+            $"Someone requested a password reset for your account. " +
+            $"Reset code (valid 1 hour): {resetToken}");
 }
