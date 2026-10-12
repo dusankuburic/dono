@@ -1,8 +1,10 @@
 @page "/buildings/{BuildingId}/assemblies/{AssemblyId:guid}"
 @inject IAssemblyService AssemblyService
 @inject IBuildingService BuildingService
+@inject IReportService ReportService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject IJSRuntime JS
 @inject NavigationManager Navigation
 
 <PageTitle>Assembly</PageTitle>
@@ -61,6 +63,9 @@ else
                 <MudCheckBox T="bool" @bind-Checked="_postedWithNotice" Label="The notice is also posted in the building" />
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="@(() => Run(() => AssemblyService.MarkNoticeSentAsync(BuildingId, AssemblyId, _postedWithNotice), "Notice recorded"))">
                     Record notice sent
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Class="ml-2" StartIcon="@Icons.Material.Filled.Download" Disabled="@_busy" OnClick="DownloadNoticePdf">
+                    Notice PDF (for posting)
                 </MudButton>
             }
             else
@@ -417,6 +422,25 @@ else
     }
 
     /// <summary>Runs an API action, shows the updated assembly, and reports errors inline.</summary>
+    /// <summary>The formal notice, printable for posting in the building (UC-007).</summary>
+    private async Task DownloadNoticePdf()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await JS.SaveAsync(await ReportService.GetAssemblyNoticePdfAsync(BuildingId, AssemblyId));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
     private async Task Run(Func<Task<AssemblyDetails>> action, string? successMessage)
     {
         _busy = true;

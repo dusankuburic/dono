@@ -23,6 +23,8 @@
     <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
     <PackageReference Include="Azure.Communication.Email" />
     <PackageReference Include="Azure.Communication.Sms" />
+    <PackageReference Include="QuestPDF" />
+    <PackageReference Include="ClosedXML" />
   </ItemGroup>
 
 </Project>

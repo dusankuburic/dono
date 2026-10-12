@@ -41,6 +41,8 @@
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.19.1" />
     <PackageVersion Include="Azure.Communication.Email" Version="1.0.1" />
     <PackageVersion Include="Azure.Communication.Sms" Version="1.0.1" />
+    <PackageVersion Include="QuestPDF" Version="2026.9.1" />
+    <PackageVersion Include="ClosedXML" Version="0.105.1" />
     <PackageVersion Include="Microsoft.Azure.AppConfiguration.AspNetCore" Version="7.1.0" />
     <PackageVersion Include="StackExchange.Redis" Version="2.7.27" />
     

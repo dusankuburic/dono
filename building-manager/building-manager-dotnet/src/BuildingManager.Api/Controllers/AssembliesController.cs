@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using BuildingManager.Api.Authorization;
+using BuildingManager.Api.Reports;
 using BuildingManager.Api.Services;
 using BuildingManager.Core.Enums;
 using BuildingManager.Orleans.Interfaces;
@@ -21,11 +22,14 @@ public class AssembliesController : ControllerBase
 {
     private readonly IGrainFactory _grainFactory;
     private readonly INotificationDispatcher _notifications;
+    private readonly AssemblyReportGenerator _reports;
 
-    public AssembliesController(IGrainFactory grainFactory, INotificationDispatcher notifications)
+    public AssembliesController(IGrainFactory grainFactory, INotificationDispatcher notifications,
+        AssemblyReportGenerator reports)
     {
         _grainFactory = grainFactory;
         _notifications = notifications;
+        _reports = reports;
     }
 
     // The building is part of the grain key, so an assembly id from another
@@ -150,6 +154,31 @@ public class AssembliesController : ControllerBase
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     public Task<AssemblyDetails> Cancel(string buildingId, Guid assemblyId) =>
         Mutate(buildingId, assemblyId, g => g.CancelAsync());
+
+    /// <summary>The formal notice, printable for physical posting (UC-007).</summary>
+    [HttpGet("{assemblyId:guid}/notice/pdf")]
+    public async Task<IActionResult> NoticePdf(string buildingId, Guid assemblyId)
+    {
+        var (building, assembly) = await AssemblyWithBuildingAsync(buildingId, assemblyId);
+        return File(_reports.NoticePdf(building, assembly), "application/pdf",
+            $"assembly-notice-{assembly.Date:yyyy-MM-dd}.pdf");
+    }
+
+    /// <summary>The minutes as a PDF (UC-006); printable for signature and archiving.</summary>
+    [HttpGet("{assemblyId:guid}/minutes/pdf")]
+    public async Task<IActionResult> MinutesPdf(string buildingId, Guid assemblyId)
+    {
+        var (building, assembly) = await AssemblyWithBuildingAsync(buildingId, assemblyId);
+        return File(_reports.MinutesPdf(building, assembly), "application/pdf",
+            $"assembly-minutes-{assembly.Date:yyyy-MM-dd}.pdf");
+    }
+
+    private async Task<(BuildingSummary Building, AssemblyDetails Assembly)> AssemblyWithBuildingAsync(
+        string buildingId, Guid assemblyId)
+    {
+        var building = await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetSummaryAsync();
+        return (building, await Grain(buildingId, assemblyId).GetAsync());
+    }
 
     private async Task<AssemblyDetails> ScheduleNew(string buildingId, ScheduleAssemblyRequest request)
     {

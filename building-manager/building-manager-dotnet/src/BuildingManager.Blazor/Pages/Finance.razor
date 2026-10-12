@@ -1,8 +1,10 @@
 @page "/finance"
 @inject IBuildingService BuildingService
 @inject IFinanceService FinanceService
+@inject IReportService ReportService
 @inject IBuildingSelectionService BuildingSelection
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 @inject ISnackbar Snackbar
 
 <PageTitle>Finance</PageTitle>
@@ -72,6 +74,11 @@ else
         <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" Title="Previous month" Disabled="@_busy" OnClick="@(() => ChangeMonth(-1))" />
         <MudText Typo="Typo.h5" Style="min-width: 220px; text-align: center;">@FinanceLabels.MonthName(_year, _month)</MudText>
         <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Title="Next month" Disabled="@(_busy || IsNextMonthBeyondLimit)" OnClick="@(() => ChangeMonth(1))" />
+        <MudSpacer />
+        <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.PictureAsPdf"
+                   Disabled="@(_busy || _status is null)" OnClick="DownloadStatusPdf">PDF</MudButton>
+        <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.GridOn"
+                   Disabled="@(_busy || _status is null)" OnClick="DownloadStatusExcel">Excel</MudButton>
     </MudStack>
 
     @if (_error is not null)
@@ -190,6 +197,31 @@ else
         _busy = true;
         await LoadMonth();
         _busy = false;
+    }
+
+    /// <summary>The visible fee status as a server-generated file (own units only for owners).</summary>
+    private Task DownloadStatusPdf() => DownloadStatus(
+        (b, y, m) => ReportService.GetFeeStatusPdfAsync(b, y, m));
+
+    private Task DownloadStatusExcel() => DownloadStatus(
+        (b, y, m) => ReportService.GetFeeStatusExcelAsync(b, y, m));
+
+    private async Task DownloadStatus(Func<string, int, int, Task<DownloadedDocument>> download)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await JS.SaveAsync(await download(_buildingId!, _year, _month));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task ShowHistory(string unit)

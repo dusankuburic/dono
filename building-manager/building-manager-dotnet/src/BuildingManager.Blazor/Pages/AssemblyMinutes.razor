@@ -1,6 +1,7 @@
 @page "/buildings/{BuildingId}/assemblies/{AssemblyId:guid}/minutes"
 @inject IAssemblyService AssemblyService
 @inject IBuildingService BuildingService
+@inject IReportService ReportService
 @inject IJSRuntime JS
 
 <PageTitle>Minutes</PageTitle>
@@ -32,6 +33,9 @@ else
         <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack"
                    Href="@($"/buildings/{Uri.EscapeDataString(BuildingId)}/assemblies/{AssemblyId}")">Back to assembly</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Print" OnClick="Print">Print</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" Disabled="@_downloading" OnClick="DownloadPdf">
+            @(_downloading ? "Generating..." : "Download PDF")
+        </MudButton>
     </MudStack>
 
     <MudPaper Class="pa-8 minutes" Elevation="2" Style="max-width: 900px;">
@@ -132,6 +136,7 @@ else
     private AssemblyDetails? _a;
     private BuildingSummary? _building;
     private string? _error;
+    private bool _downloading;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -147,6 +152,23 @@ else
     }
 
     private async Task Print() => await JS.InvokeVoidAsync("print");
+
+    private async Task DownloadPdf()
+    {
+        _downloading = true;
+        try
+        {
+            await JS.SaveAsync(await ReportService.GetAssemblyMinutesPdfAsync(BuildingId, AssemblyId));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _downloading = false;
+        }
+    }
 
     private static string Local(DateTime? utc) => utc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-";
 

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using BuildingManager.Api.Authorization;
+using BuildingManager.Api.Reports;
 using BuildingManager.Api.Services;
 using BuildingManager.Core.Enums;
 using BuildingManager.Orleans.Interfaces;
@@ -16,11 +17,14 @@ public class BuildingsController : ControllerBase
 {
     private readonly IGrainFactory _grainFactory;
     private readonly INotificationDispatcher _notifications;
+    private readonly FinanceReportGenerator _financeReports;
 
-    public BuildingsController(IGrainFactory grainFactory, INotificationDispatcher notifications)
+    public BuildingsController(IGrainFactory grainFactory, INotificationDispatcher notifications,
+        FinanceReportGenerator financeReports)
     {
         _grainFactory = grainFactory;
         _notifications = notifications;
+        _financeReports = financeReports;
     }
 
     /// <summary>
@@ -376,17 +380,48 @@ public class BuildingsController : ControllerBase
     /// </summary>
     [HttpGet("{buildingId}/finance/status")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
-    public async Task<ActionResult<MonthPaymentStatus>> GetPaymentStatus(string buildingId, [FromQuery] int? year, [FromQuery] int? month)
+    public async Task<ActionResult<MonthPaymentStatus>> GetPaymentStatus(string buildingId, [FromQuery] int? year, [FromQuery] int? month) =>
+        Ok(await PaymentStatusForCallerAsync(buildingId, year, month));
+
+    /// <summary>The fee status as a printable PDF (owners get only their own units).</summary>
+    [HttpGet("{buildingId}/finance/status/pdf")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> GetPaymentStatusPdf(string buildingId, [FromQuery] int? year, [FromQuery] int? month)
+    {
+        var (status, building) = await StatusAndBuildingAsync(buildingId, year, month);
+        return File(_financeReports.FeeStatusPdf(building, status), "application/pdf",
+            $"fee-status-{status.Year}-{status.Month:D2}.pdf");
+    }
+
+    /// <summary>The fee status as an Excel sheet (owners get only their own units).</summary>
+    [HttpGet("{buildingId}/finance/status/xlsx")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> GetPaymentStatusExcel(string buildingId, [FromQuery] int? year, [FromQuery] int? month)
+    {
+        var (status, building) = await StatusAndBuildingAsync(buildingId, year, month);
+        return File(_financeReports.FeeStatusExcel(building, status),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"fee-status-{status.Year}-{status.Month:D2}.xlsx");
+    }
+
+    private async Task<MonthPaymentStatus> PaymentStatusForCallerAsync(string buildingId, int? year, int? month)
     {
         var now = DateTime.UtcNow;
         var status = await _grainFactory.GetGrain<IBuildingGrain>(buildingId)
             .GetPaymentStatusAsync(year ?? now.Year, month ?? now.Month);
 
         if (IsManager())
-            return Ok(status);
+            return status;
 
         var ownUnits = await OwnUnitsAsync(buildingId);
-        return Ok(status with { Units = status.Units.Where(u => ownUnits.Contains(u.UnitNumber)).ToList() });
+        return status with { Units = status.Units.Where(u => ownUnits.Contains(u.UnitNumber)).ToList() };
+    }
+
+    private async Task<(MonthPaymentStatus Status, BuildingSummary Building)> StatusAndBuildingAsync(
+        string buildingId, int? year, int? month)
+    {
+        var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
+        return (await PaymentStatusForCallerAsync(buildingId, year, month), await grain.GetSummaryAsync());
     }
 
     /// <summary>Payments received and expenses incurred in a month (default: this month).</summary>

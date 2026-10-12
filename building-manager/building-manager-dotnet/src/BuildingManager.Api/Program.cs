@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using BuildingManager.Api.Authorization;
 using BuildingManager.Api.Controllers;
 using BuildingManager.Api.Middleware;
+using BuildingManager.Api.Reports;
 using BuildingManager.Api.Services;
 using BuildingManager.Infrastructure.Storage;
 using BuildingManager.Orleans.Interfaces;
@@ -185,6 +186,8 @@ else
 }
 
 builder.Services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
+builder.Services.AddSingleton<AssemblyReportGenerator>();
+builder.Services.AddSingleton<FinanceReportGenerator>();
 builder.Services.AddHostedService<AdminSeeder>();
 
 // Document content lives in blob storage (Azurite locally, Azure Blob in production).

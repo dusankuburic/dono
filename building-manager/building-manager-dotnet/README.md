@@ -150,9 +150,11 @@ roles run them. One grain per assembly, keyed `{buildingId}|{assemblyId}`.
    quorum no decisions are made and a first session can be followed by a
    repeated session (`POST .../{assemblyId}/repeat`) with the same agenda.
 
-The Blazor client prints the minutes from `/buildings/{id}/assemblies/{assemblyId}/minutes`.
-Not yet implemented: sending notices/minutes to owners, reminders, PDF export,
-tracking owners who miss sessions.
+The Blazor client prints the minutes from `/buildings/{id}/assemblies/{assemblyId}/minutes`,
+and both documents are generated server-side as PDFs:
+`GET .../{assemblyId}/notice/pdf` (the formal notice, printable for posting)
+and `GET .../{assemblyId}/minutes/pdf`. Not yet implemented: sending
+notices/minutes to owners by email, reminders, tracking owners who miss sessions.
 
 ### Announcements
 
@@ -206,6 +208,8 @@ not implemented yet.
   that month. Standing: paid / not paid this month (last month paid) / 2+ months
   unpaid / no fee. Managers see every unit; other users only the units where
   they are registered as a resident with their account email.
+  `GET status/pdf` and `GET status/xlsx` export the same (scoped) table as a
+  PDF (QuestPDF) or Excel sheet (ClosedXML).
 - `POST payments`: unit, amount, billing month (`month`/`year`), date received
   (`paymentDate`, defaults to now, not in the future), method, reference, notes,
   optional client `id` for safe retries. The Blazor form warns before saving a
@@ -215,7 +219,8 @@ not implemented yet.
 - `GET payments?unit=`: a unit's payments of the last 12 months (owners: own units only).
 - `POST expenses`: category, amount, description, vendor, date.
 
-Payment reminders and Excel/PDF exports are not implemented yet.
+Payment reminders and financial-report exports beyond the fee status are not
+implemented yet.
 
 ## Architecture
 
