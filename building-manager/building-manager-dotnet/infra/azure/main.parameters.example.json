@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "appName": { "value": "building-manager" },
+    "postgresAdminLogin": { "value": "bmadmin" },
+    "postgresAdminPassword": { "value": "change-me-strong-password" },
+    "jwtSecret": { "value": "change-me-at-least-32-characters-long-secret" },
+    "adminEmail": { "value": "admin@example.com" },
+    "adminPassword": { "value": "change-me-strong-password" },
+    "allowedOrigins": { "value": [] },
+    "siloMaxReplicas": { "value": 1 }
+  }
+}

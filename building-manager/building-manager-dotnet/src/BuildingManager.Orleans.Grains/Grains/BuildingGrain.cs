@@ -155,11 +155,11 @@ public class BuildingGrain : Grain, IBuildingGrain
         await _state.WriteStateAsync();
     }
 
-    public async Task<UnitInfo> GetUnitAsync(string number)
+    public Task<UnitInfo> GetUnitAsync(string number)
     {
         if (_state.State.Units.TryGetValue(number, out var unit))
         {
-            return new UnitInfo
+            return Task.FromResult(new UnitInfo
             {
                 Id = unit.Id,
                 Number = unit.Number,
@@ -169,7 +169,7 @@ public class BuildingGrain : Grain, IBuildingGrain
                 OwnershipShare = unit.OwnershipShare,
                 Type = unit.Type,
                 Status = unit.Status
-            };
+            });
         }
         throw new KeyNotFoundException($"Unit {number} not found");
     }

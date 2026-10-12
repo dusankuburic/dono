@@ -51,13 +51,10 @@ dotnet user-secrets set "Auth:AdminPassword" "a-strong-password" --project src/B
 # ... or environment variables: Jwt__Secret / Auth__AdminEmail / Auth__AdminPassword.
 
 # Orleans clustering/persistence/reminders tables must exist before the silo
-# starts. Apply the PostgreSQL scripts to the building_manager_orleans database
-# IN THIS ORDER (all from github.com/dotnet/orleans, use the main-branch copy —
-# the version-tagged copies lag behind the runtime):
-#   1. src/AdoNet/Shared/PostgreSQL-Main.sql            (creates OrleansQuery)
-#   2. src/AdoNet/Orleans.Clustering.AdoNet/PostgreSQL-Clustering.sql
-#   3. src/AdoNet/Orleans.Persistence.AdoNet/PostgreSQL-Persistence.sql
-#   4. src/AdoNet/Orleans.Reminders.AdoNet/PostgreSQL-Reminders.sql
+# starts. Apply the vendored scripts (infra/orleans-sql/, in numbered order —
+# main-branch copies from the Orleans repo; the version-tagged ones lag the
+# runtime) to the building_manager_orleans database, e.g. with psql:
+#   for f in infra/orleans-sql/*.sql; do psql "$ORLEANS_DB_URL" -f "$f"; done
 
 # Run silo (dashboard on http://localhost:8081, health on http://localhost:8080/health)
 dotnet run --project src/BuildingManager.Orleans.Silo
@@ -78,6 +75,45 @@ If the client stops at "Loading..." with an SRI `integrity` error for
 `dotnet.native.wasm` in the browser console, the incremental build cache is
 stale (e.g. after a .NET runtime update): run
 `dotnet clean src/BuildingManager.Blazor` and publish again.
+
+## Deployment (Azure)
+
+Provisioned with `infra/azure/main.bicep` (validated with `az bicep build`;
+not yet exercised against a live subscription — expect small adjustments on
+the first real deployment):
+
+```bash
+az group create -n bm-prod -l westeurope
+cp infra/azure/main.parameters.example.json infra/azure/main.parameters.json
+az deployment group create -g bm-prod -f infra/azure/main.bicep -p @infra/azure/main.parameters.json
+```
+
+This creates: a VNet + Azure Container Apps environment, the silo and API as
+container apps (Orleans gateway on an internal additional TCP port — the silo
+runs a single replica for now), PostgreSQL flexible server (with the
+`building_manager_orleans` database), a storage account (documents container +
+static website hosting the Blazor client), Key Vault (JWT secret, admin
+credentials, connection strings; RBAC-assigned to the apps' managed
+identities) and an ACR the CI pipeline pushes to.
+
+Apply the Orleans schema once (scripts are vendored in `infra/orleans-sql/`,
+in order — they are the main-branch copies because the version-tagged ones
+lag the runtime):
+
+```bash
+for f in infra/orleans-sql/*.sql; do
+  az postgres flexible-server execute -n <postgres-name> -u bmadmin -p '<password>' -d building_manager_orleans -f "$f"
+done
+```
+
+CI (`.github/workflows/ci.yml` at the repository root) builds and tests on
+every push/PR with the .NET 8 SDK. On pushes to main it also builds the silo
+and API images, pushes them to ACR, updates both container apps and publishes
+the Blazor client to the storage static website — but only when these
+repository secrets exist: `AZURE_CREDENTIALS` (service principal with
+contributor rights on the resource group), `ACR_NAME`, `RESOURCE_GROUP`,
+`STORAGE_ACCOUNT`. Without them the deploy job is skipped.
+
 
 ## Authentication
 
