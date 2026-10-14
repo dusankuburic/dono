@@ -1,0 +1,133 @@
+name: building-manager deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource-group:
+        description: Resource group (created if missing)
+        required: true
+        default: rg-building-manager
+      location:
+        description: Azure region
+        required: true
+        default: westeurope
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: building-manager-deploy
+
+env:
+  RG: ${{ inputs.resource-group }}
+  IMAGE_TAG: ${{ github.sha }}
+
+defaults:
+  run:
+    working-directory: building-manager/building-manager-dotnet
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resource group
+        run: az group create --name "$RG" --location "${{ inputs.location }}" --output none
+
+      - name: Current API image
+        id: current
+        run: |
+          app=$(az containerapp list -g "$RG" --query "[?starts_with(name, 'bm-api-')].name | [0]" -o tsv)
+          image=""
+          if [ -n "$app" ]; then
+            image=$(az containerapp show -g "$RG" -n "$app" --query "properties.template.containers[0].image" -o tsv)
+          fi
+          echo "image=${image:-mcr.microsoft.com/dotnet/samples:aspnetapp}" >> "$GITHUB_OUTPUT"
+
+      - name: Infrastructure
+        id: infra
+        env:
+          PG_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          outputs=$(az deployment group create -g "$RG" -n "building-manager-infra-${{ github.run_number }}" \
+            -f infra/azure/main.bicep -p infra/azure/main.parameters.json \
+            -p apiImage="${{ steps.current.outputs.image }}" postgresAdminPassword="$PG_PASSWORD" jwtSecret="$JWT_SECRET" \
+               adminEmail="$ADMIN_EMAIL" adminPassword="$ADMIN_PASSWORD" \
+            --query properties.outputs -o json)
+          for key in apiUrl containerAppName registryName registryLoginServer staticWebAppName postgresServerName postgresHost postgresAdminLogin orleansDatabase; do
+            echo "$key=$(echo "$outputs" | jq -r ".$key.value")" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Build API image
+        run: |
+          az acr build --registry "${{ steps.infra.outputs.registryName }}" \
+            --image "building-manager-api:$IMAGE_TAG" \
+            --file src/BuildingManager.Api/Dockerfile .
+
+      - name: Orleans schema
+        env:
+          PGHOST: ${{ steps.infra.outputs.postgresHost }}
+          PGUSER: ${{ steps.infra.outputs.postgresAdminLogin }}
+          PGPASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+          PGSSLMODE: require
+          ORLEANS_DATABASE: ${{ steps.infra.outputs.orleansDatabase }}
+          SERVER: ${{ steps.infra.outputs.postgresServerName }}
+        run: |
+          ip=$(curl -fsS https://api.ipify.org)
+          az postgres flexible-server firewall-rule create -g "$RG" -n "$SERVER" \
+            --rule-name github-runner --start-ip-address "$ip" --end-ip-address "$ip" --output none
+          trap 'az postgres flexible-server firewall-rule delete -g "$RG" -n "$SERVER" --rule-name github-runner --yes --output none' EXIT
+          sh infra/orleans-sql/apply.sh
+
+      - name: Roll out API
+        env:
+          PG_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          az deployment group create -g "$RG" -n "building-manager-api-${{ github.run_number }}" \
+            -f infra/azure/main.bicep -p infra/azure/main.parameters.json \
+            -p apiImage="${{ steps.infra.outputs.registryLoginServer }}/building-manager-api:$IMAGE_TAG" \
+               postgresAdminPassword="$PG_PASSWORD" jwtSecret="$JWT_SECRET" \
+               adminEmail="$ADMIN_EMAIL" adminPassword="$ADMIN_PASSWORD" \
+            --output none
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build client
+        run: |
+          dotnet publish src/BuildingManager.Blazor -c Release -o publish/client
+          printf '{\n  "ApiBaseUrl": "%s"\n}\n' "${{ steps.infra.outputs.apiUrl }}" > publish/client/wwwroot/appsettings.json
+          rm -f publish/client/wwwroot/appsettings.json.gz publish/client/wwwroot/appsettings.json.br
+
+      - name: Static Web App deployment token
+        run: |
+          token=$(az staticwebapp secrets list --name "${{ steps.infra.outputs.staticWebAppName }}" --query properties.apiKey -o tsv)
+          echo "::add-mask::$token"
+          echo "SWA_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Deploy client
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ env.SWA_TOKEN }}
+          action: upload
+          app_location: building-manager/building-manager-dotnet/publish/client/wwwroot
+          skip_app_build: true
+          skip_api_build: true
+
+      - name: Smoke test
+        run: curl -fsS --retry 10 --retry-delay 15 --retry-all-errors "${{ steps.infra.outputs.apiUrl }}/health/ready"

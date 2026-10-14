@@ -16,8 +16,61 @@ else if (_summary is null)
 }
 else
 {
-    <MudText Typo="Typo.h3" Class="mb-1">@_summary.Name</MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+        <MudText Typo="Typo.h3" Class="mb-1">@_summary.Name</MudText>
+        @if (_canManage && _info is null)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Edit" OnClick="StartEditBuilding">Edit details</MudButton>
+        }
+    </MudStack>
     <MudText Typo="Typo.body1" Class="mb-4">@_summary.Street @_summary.StreetNumber, @_summary.City</MudText>
+
+    @if (_info is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Building details</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_info.Name" Label="Name" MaxLength="200" Immediate="true" />
+                </MudItem>
+                <MudItem xs="8" md="4">
+                    <MudTextField @bind-Value="_info.Street" Label="Street" MaxLength="200" />
+                </MudItem>
+                <MudItem xs="4" md="2">
+                    <MudTextField @bind-Value="_info.StreetNumber" Label="Number" MaxLength="20" />
+                </MudItem>
+                <MudItem xs="8" md="4">
+                    <MudTextField @bind-Value="_info.City" Label="City" MaxLength="100" />
+                </MudItem>
+                <MudItem xs="4" md="2">
+                    <MudTextField @bind-Value="_info.PostalCode" Label="Postal code" MaxLength="20" />
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int?" @bind-Value="_info.YearBuilt" Label="Year built" Min="1700" Max="2100" />
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int" @bind-Value="_info.TotalFloors" Label="Floors" Min="1" Max="200" />
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="decimal?" @bind-Value="_info.TotalAreaM2" Label="Total area (m²)" Min="0" />
+                </MudItem>
+                <MudItem xs="6" md="2" Class="d-flex align-center">
+                    <MudCheckBox T="bool" @bind-Checked="_info.HasElevator" Label="Elevator" />
+                </MudItem>
+                <MudItem xs="6" md="2" Class="d-flex align-center">
+                    <MudCheckBox T="bool" @bind-Checked="_info.HasParking" Label="Parking" />
+                </MudItem>
+            </MudGrid>
+            @if (_infoError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_infoError</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SaveBuilding">Save</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => { _info = null; _infoError = null; })">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
 
     <MudGrid Class="mb-4">
         <MudItem xs="12" sm="6" md="3">
@@ -54,29 +107,117 @@ else
         </MudItem>
     </MudGrid>
 
-    <MudText Typo="Typo.h5" Class="mb-2">Units</MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudText Typo="Typo.h5">Units</MudText>
+            @if (_units.Count > 0)
+            {
+                <MudChip Size="Size.Small" Color="@(SharesComplete ? Color.Success : Color.Warning)"
+                         Icon="@(SharesComplete ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Warning)">
+                    Ownership shares total @TotalShares.ToString("N2")%
+                </MudChip>
+            }
+        </MudStack>
+        @if (_canManage && _unitForm is null)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => StartUnit(null))">
+                Add unit
+            </MudButton>
+        }
+    </MudStack>
+
+    @if (_units.Count > 0 && !SharesComplete && _canManage)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+            The units' ownership shares should add up to 100%. Assembly quorum and votes are weighted by these shares.
+        </MudAlert>
+    }
+
+    @if (_unitForm is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">@(_unitForm.IsNew ? "New unit" : $"Unit {_unitForm.Number}")</MudText>
+            <MudGrid>
+                <MudItem xs="6" md="2">
+                    <MudTextField @bind-Value="_unitForm.Number" Label="Number" MaxLength="20" Disabled="@(!_unitForm.IsNew)" Immediate="true" />
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudNumericField T="int" @bind-Value="_unitForm.Floor" Label="Floor" Min="-10" Max="200" />
+                </MudItem>
+                <MudItem xs="6" md="2">
+                    <MudTextField @bind-Value="_unitForm.Entrance" Label="Entrance (optional)" MaxLength="10" />
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudSelect T="UnitType" @bind-Value="_unitForm.Type" Label="Type">
+                        @foreach (var type in Enum.GetValues<UnitType>())
+                        {
+                            <MudSelectItem Value="@type">@BuildingLabels.UnitType(type)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudSelect T="UnitStatus" @bind-Value="_unitForm.Status" Label="Occupancy">
+                        @foreach (var status in Enum.GetValues<UnitStatus>())
+                        {
+                            <MudSelectItem Value="@status">@BuildingLabels.UnitStatus(status)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="decimal" @bind-Value="_unitForm.AreaM2" Label="Area (m²)" Min="0" Format="N2" />
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudNumericField T="decimal" @bind-Value="_unitForm.OwnershipShare" Label="Ownership share (%)" Min="0" Max="100" Format="N4"
+                                     HelperText="@ShareHelperText" />
+                </MudItem>
+            </MudGrid>
+            @if (_unitError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_unitError</MudAlert>
+            }
+            <MudStack Row="true" Spacing="2" Class="mt-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SaveUnit">Save</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => { _unitForm = null; _unitError = null; })">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
 
     <MudTable Items="@_units" Hover="true" Breakpoint="Breakpoint.Sm">
         <HeaderContent>
             <MudTh>Number</MudTh>
             <MudTh>Floor</MudTh>
             <MudTh>Type</MudTh>
-            <MudTh>Status</MudTh>
+            <MudTh>Occupancy</MudTh>
             <MudTh>Area (m²)</MudTh>
             <MudTh>Ownership Share</MudTh>
+            @if (_canManage)
+            {
+                <MudTh></MudTh>
+            }
         </HeaderContent>
         <RowTemplate>
-            <MudTd DataLabel="Number">@context.Number</MudTd>
+            <MudTd DataLabel="Number">@context.Number@(context.Entrance is null ? "" : $" ({context.Entrance})")</MudTd>
             <MudTd DataLabel="Floor">@context.Floor</MudTd>
-            <MudTd DataLabel="Type">@context.Type</MudTd>
-            <MudTd DataLabel="Status">
-                <MudChip Size="Size.Small">@context.Status</MudChip>
+            <MudTd DataLabel="Type">@BuildingLabels.UnitType(context.Type)</MudTd>
+            <MudTd DataLabel="Occupancy">
+                <MudChip Size="Size.Small">@BuildingLabels.UnitStatus(context.Status)</MudChip>
             </MudTd>
             <MudTd DataLabel="Area">@context.AreaM2.ToString("N2")</MudTd>
             <MudTd DataLabel="Ownership Share">@context.OwnershipShare.ToString("N2")%</MudTd>
+            @if (_canManage)
+            {
+                <MudTd Style="text-align: right; white-space: nowrap;">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Title="Edit unit" Disabled="@_busy"
+                                   OnClick="@(() => StartUnit(context))" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" Title="Remove unit" Disabled="@_busy"
+                                   OnClick="@(() => RemoveUnit(context))" />
+                </MudTd>
+            }
         </RowTemplate>
         <NoRecordsContent>
-            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">No units registered.</MudTd>
+            <MudTd Colspan="7" Class="pa-4" Align="Align.Center">
+                No units registered.@(_canManage ? " Add the building's apartments, shops and garages with their ownership shares." : "")
+            </MudTd>
         </NoRecordsContent>
     </MudTable>
 
@@ -141,6 +282,53 @@ else
     private string? _accessError;
     private bool _accessBusy;
 
+    private bool _busy;
+    private BuildingForm? _info;
+    private string? _infoError;
+    private UnitForm? _unitForm;
+    private string? _unitError;
+
+    private decimal TotalShares => _units.Sum(u => u.OwnershipShare);
+
+    private bool SharesComplete => Math.Abs(TotalShares - 100m) < 0.01m;
+
+    private string ShareHelperText
+    {
+        get
+        {
+            if (_unitForm is null)
+                return string.Empty;
+            var others = _units.Where(u => u.Number != _unitForm.Number.Trim()).Sum(u => u.OwnershipShare);
+            return $"Other units: {others:N2}%, left: {100 - others:N2}%";
+        }
+    }
+
+    private sealed class BuildingForm
+    {
+        public string Name { get; set; } = "";
+        public string Street { get; set; } = "";
+        public string StreetNumber { get; set; } = "";
+        public string City { get; set; } = "";
+        public string? PostalCode { get; set; }
+        public int? YearBuilt { get; set; }
+        public int TotalFloors { get; set; } = 1;
+        public bool HasElevator { get; set; }
+        public bool HasParking { get; set; }
+        public decimal? TotalAreaM2 { get; set; }
+    }
+
+    private sealed class UnitForm
+    {
+        public bool IsNew { get; init; }
+        public string Number { get; set; } = "";
+        public int Floor { get; set; }
+        public string? Entrance { get; set; }
+        public UnitType Type { get; set; } = UnitType.Apartment;
+        public UnitStatus Status { get; set; } = UnitStatus.OccupiedByOwner;
+        public decimal AreaM2 { get; set; }
+        public decimal OwnershipShare { get; set; }
+    }
+
     [Parameter]
     public string BuildingId { get; set; } = string.Empty;
 
@@ -177,6 +365,173 @@ else
         {
             await LoadMembers();
         }
+    }
+
+    private async Task StartEditBuilding()
+    {
+        _infoError = null;
+        try
+        {
+            var info = await BuildingService.GetBuildingInfoAsync(BuildingId);
+            _info = new BuildingForm
+            {
+                Name = info.Name,
+                Street = info.Street,
+                StreetNumber = info.StreetNumber,
+                City = info.City,
+                PostalCode = info.PostalCode,
+                YearBuilt = info.YearBuilt,
+                TotalFloors = Math.Max(1, info.TotalFloors),
+                HasElevator = info.HasElevator,
+                HasParking = info.HasParking,
+                TotalAreaM2 = info.TotalAreaM2 > 0 ? info.TotalAreaM2 : null
+            };
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task SaveBuilding()
+    {
+        if (_info is null)
+            return;
+        if (string.IsNullOrWhiteSpace(_info.Name) || string.IsNullOrWhiteSpace(_info.Street) ||
+            string.IsNullOrWhiteSpace(_info.StreetNumber) || string.IsNullOrWhiteSpace(_info.City))
+        {
+            _infoError = "Name, street, number and city are required.";
+            return;
+        }
+
+        _busy = true;
+        _infoError = null;
+        try
+        {
+            await BuildingService.UpdateBuildingAsync(BuildingId, new BuildingInfoRequest
+            {
+                Name = _info.Name.Trim(),
+                Street = _info.Street.Trim(),
+                StreetNumber = _info.StreetNumber.Trim(),
+                City = _info.City.Trim(),
+                PostalCode = string.IsNullOrWhiteSpace(_info.PostalCode) ? null : _info.PostalCode.Trim(),
+                YearBuilt = _info.YearBuilt,
+                TotalFloors = _info.TotalFloors,
+                HasElevator = _info.HasElevator,
+                HasParking = _info.HasParking,
+                TotalAreaM2 = _info.TotalAreaM2
+            });
+            _summary = await BuildingService.GetBuildingAsync(BuildingId);
+            _info = null;
+            Snackbar.Add("Building details saved", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            _infoError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void StartUnit(UnitInfo? unit)
+    {
+        _unitError = null;
+        _unitForm = unit is null
+            ? new UnitForm { IsNew = true, Floor = _units.Count == 0 ? 0 : _units.Max(u => u.Floor) }
+            : new UnitForm
+            {
+                Number = unit.Number,
+                Floor = unit.Floor,
+                Entrance = unit.Entrance,
+                Type = unit.Type,
+                Status = unit.Status,
+                AreaM2 = unit.AreaM2,
+                OwnershipShare = unit.OwnershipShare
+            };
+    }
+
+    private async Task SaveUnit()
+    {
+        if (_unitForm is null)
+            return;
+
+        var number = _unitForm.Number.Trim();
+        if (number.Length == 0)
+        {
+            _unitError = "Enter the unit number.";
+            return;
+        }
+        if (_unitForm.IsNew && _units.Any(u => string.Equals(u.Number, number, StringComparison.OrdinalIgnoreCase)))
+        {
+            _unitError = $"Unit {number} already exists; edit it in the list instead.";
+            return;
+        }
+        if (_unitForm.AreaM2 <= 0 || _unitForm.OwnershipShare <= 0)
+        {
+            _unitError = "Enter the area and the ownership share (both above zero).";
+            return;
+        }
+
+        _busy = true;
+        _unitError = null;
+        try
+        {
+            await BuildingService.AddUnitAsync(BuildingId, new UnitInfoRequest
+            {
+                Number = number,
+                Floor = _unitForm.Floor,
+                Entrance = string.IsNullOrWhiteSpace(_unitForm.Entrance) ? null : _unitForm.Entrance.Trim(),
+                Type = _unitForm.Type,
+                Status = _unitForm.Status,
+                AreaM2 = _unitForm.AreaM2,
+                OwnershipShare = _unitForm.OwnershipShare
+            });
+            Snackbar.Add(_unitForm.IsNew ? $"Unit {number} added" : $"Unit {number} saved", Severity.Success);
+            _unitForm = null;
+            await ReloadUnits();
+        }
+        catch (Exception ex)
+        {
+            _unitError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveUnit(UnitInfo unit)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Remove unit",
+            $"Remove unit {unit.Number}? Its payment history stays in the finance records.",
+            yesText: "Remove", cancelText: "Cancel");
+        if (confirmed != true)
+            return;
+
+        _busy = true;
+        try
+        {
+            await BuildingService.RemoveUnitAsync(BuildingId, unit.Number);
+            Snackbar.Add($"Unit {unit.Number} removed", Severity.Info);
+            await ReloadUnits();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReloadUnits()
+    {
+        _units = (await BuildingService.GetUnitsAsync(BuildingId)).ToList();
+        _summary = await BuildingService.GetBuildingAsync(BuildingId);
     }
 
     private async Task LoadMembers()

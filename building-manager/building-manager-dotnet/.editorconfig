@@ -52,3 +52,6 @@ dotnet_naming_style.begins_with_underscore.capitalization = camel_case
 [*.cs]
 dotnet_diagnostic.CA2007.severity = none
 dotnet_diagnostic.IDE0058.severity = none
+
+[*.sh]
+end_of_line = lf

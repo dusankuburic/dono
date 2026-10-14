@@ -4,5 +4,7 @@ namespace BuildingManager.Orleans.Interfaces;
 
 public interface ISchedulerGrain : IGrainWithStringKey
 {
-        Task RunSweepAsync();
+    Task EnsureScheduledAsync();
+
+    Task RunSweepAsync();
 }

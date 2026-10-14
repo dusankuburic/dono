@@ -129,4 +129,20 @@ public class SessionRevocationClusterTests : IClassFixture<ClusterFixture>
 
         await act.Should().NotThrowAsync();
     }
+
+    [Fact]
+    public async Task Terminated_Session_State_Is_Cleared_So_Nothing_Of_It_Remains()
+    {
+        var user = await RegisteredUser($"clear-{Guid.NewGuid():N}@example.com");
+        var sessionId = await LoginSession(user);
+        var session = GrainFactory.GetGrain<IUserSessionGrain>(sessionId);
+        await session.SetRefreshTokenAsync("hash");
+
+        await session.TerminateAsync();
+
+        (await session.ValidateSessionAsync()).Should().BeFalse();
+        await session.Invoking(s => s.GetSessionAsync()).Should().ThrowAsync<KeyNotFoundException>();
+        (await session.TryRotateRefreshTokenAsync("hash", "new", DateTime.UtcNow.AddDays(7))).Should().BeFalse();
+        await session.Invoking(s => s.TerminateAsync()).Should().NotThrowAsync();
+    }
 }

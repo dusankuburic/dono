@@ -2,6 +2,13 @@
 
 **Technology Stack:** C# / .NET 8 / Orleans / Blazor Hybrid / Azure
 
+> **Status:** this is the original design. As implemented, the API hosts the
+> Orleans silo in-process (there is no separate `Orleans.Silo` project), the
+> client is Blazor WebAssembly calling the REST API, and there is no Redis,
+> SQLite offline sync or Orleans streams yet. Hosting is Azure Container Apps
+> + PostgreSQL Flexible Server + Static Web Apps (`infra/azure/main.bicep`).
+> See README.md for how to run and deploy it.
+
 ---
 
 ## Architecture Overview

@@ -140,78 +140,127 @@ public class BuildingGrain : Grain, IBuildingGrain
         await registry.RegisterAsync(_state.State.Id, info.Name);
     }
 
+    public Task<BuildingInfo> GetInfoAsync()
+    {
+        EnsureInitialized();
+        return Task.FromResult(new BuildingInfo
+        {
+            Name = _state.State.Name,
+            Street = _state.State.Street,
+            StreetNumber = _state.State.StreetNumber,
+            City = _state.State.City,
+            PostalCode = _state.State.PostalCode,
+            YearBuilt = _state.State.YearBuilt,
+            TotalFloors = _state.State.TotalFloors,
+            HasElevator = _state.State.HasElevator,
+            HasParking = _state.State.HasParking,
+            TotalAreaM2 = _state.State.TotalAreaM2
+        });
+    }
+
     public async Task UpdateInfoAsync(BuildingInfo info)
     {
-        _state.State.Name = info.Name;
+        EnsureInitialized();
+        if (string.IsNullOrWhiteSpace(info.Name))
+            throw new ArgumentException("Building name is required", nameof(info));
+
+        var renamed = _state.State.Name != info.Name.Trim();
+        _state.State.Name = info.Name.Trim();
         _state.State.Street = info.Street;
         _state.State.StreetNumber = info.StreetNumber;
         _state.State.City = info.City;
         _state.State.PostalCode = info.PostalCode;
         _state.State.YearBuilt = info.YearBuilt;
+        _state.State.TotalFloors = info.TotalFloors;
         _state.State.HasElevator = info.HasElevator;
         _state.State.HasParking = info.HasParking;
+        _state.State.TotalAreaM2 = info.TotalAreaM2;
         _state.State.UpdatedAt = DateTime.UtcNow;
 
         await _state.WriteStateAsync();
+
+        if (renamed)
+        {
+            await GrainFactory.GetGrain<IBuildingRegistryGrain>("global").RegisterAsync(_state.State.Id, _state.State.Name);
+        }
+    }
+
+    private void EnsureInitialized()
+    {
+        if (string.IsNullOrEmpty(_state.State.Name))
+            throw new KeyNotFoundException($"Building '{this.GetPrimaryKeyString()}' not found");
     }
 
     public Task<UnitInfo> GetUnitAsync(string number)
     {
         if (_state.State.Units.TryGetValue(number, out var unit))
         {
-            return Task.FromResult(new UnitInfo
-            {
-                Id = unit.Id,
-                Number = unit.Number,
-                Floor = unit.Floor,
-                Entrance = unit.Entrance,
-                AreaM2 = unit.AreaM2,
-                OwnershipShare = unit.OwnershipShare,
-                Type = unit.Type,
-                Status = unit.Status
-            });
+            return Task.FromResult(MapUnit(unit));
         }
         throw new KeyNotFoundException($"Unit {number} not found");
     }
 
     public Task<IEnumerable<UnitInfo>> GetAllUnitsAsync()
     {
-
-        var units = _state.State.Units.Values.Select(u => new UnitInfo
-        {
-            Id = u.Id,
-            Number = u.Number,
-            Floor = u.Floor,
-            Entrance = u.Entrance,
-            AreaM2 = u.AreaM2,
-            OwnershipShare = u.OwnershipShare,
-            Type = u.Type,
-            Status = u.Status
-        }).ToArray();
+        var units = _state.State.Units.Values
+            .OrderBy(u => u.Number.Length).ThenBy(u => u.Number)
+            .Select(MapUnit)
+            .ToArray();
         return Task.FromResult<IEnumerable<UnitInfo>>(units);
     }
 
+    private static UnitInfo MapUnit(UnitState u) => new()
+    {
+        Id = u.Id,
+        Number = u.Number,
+        Floor = u.Floor,
+        Entrance = u.Entrance,
+        AreaM2 = u.AreaM2,
+        OwnershipShare = u.OwnershipShare,
+        Type = u.Type,
+        Status = u.Status
+    };
+
     public async Task AddOrUpdateUnitAsync(UnitInfo unit)
     {
-        var state = new UnitState
+        var number = unit.Number?.Trim();
+        if (string.IsNullOrEmpty(number))
+            throw new ArgumentException("A unit needs a number.", nameof(unit));
+        if (unit.AreaM2 < 0)
+            throw new ArgumentException("The area cannot be negative.", nameof(unit));
+        if (unit.OwnershipShare is < 0 or > 100)
+            throw new ArgumentException("The ownership share must be between 0 and 100%.", nameof(unit));
+        if (!Enum.IsDefined(unit.Type))
+            throw new ArgumentException("Unknown unit type.", nameof(unit));
+        if (!Enum.IsDefined(unit.Status))
+            throw new ArgumentException("Unknown unit status.", nameof(unit));
+
+        _state.State.Units.TryGetValue(number, out var existing);
+        _state.State.Units[number] = new UnitState
         {
-            Id = unit.Id,
-            Number = unit.Number,
+            Id = existing?.Id ?? (unit.Id == Guid.Empty ? Guid.NewGuid() : unit.Id),
+            Number = number,
             Floor = unit.Floor,
-            Entrance = unit.Entrance,
+            Entrance = string.IsNullOrWhiteSpace(unit.Entrance) ? null : unit.Entrance.Trim(),
             AreaM2 = unit.AreaM2,
             OwnershipShare = unit.OwnershipShare,
             Type = unit.Type,
             Status = unit.Status
         };
-
-        _state.State.Units[unit.Number] = state;
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
     }
 
     public async Task RemoveUnitAsync(string number)
     {
+        if (!_state.State.Units.ContainsKey(number))
+            throw new KeyNotFoundException($"Unit {number} not found");
+
+        var residents = _state.State.Residents.Values.Count(r => r.IsActive && r.UnitNumber == number);
+        if (residents > 0)
+            throw new InvalidOperationException(
+                $"Unit {number} still has {residents} resident(s) registered. Move them out first.");
+
         _state.State.Units.Remove(number);
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
@@ -237,27 +286,55 @@ public class BuildingGrain : Grain, IBuildingGrain
 
     public async Task AddResidentAsync(ResidentInfo resident)
     {
-        var state = new ResidentState
-        {
-            Id = resident.Id,
-            FirstName = resident.FirstName,
-            LastName = resident.LastName,
-            Phone = resident.Phone,
-            Email = resident.Email,
-            Role = resident.Role,
-            UnitNumber = resident.UnitNumber,
-            OwnershipShare = resident.OwnershipShare,
-            IsActive = true
-        };
+        var id = resident.Id == Guid.Empty ? Guid.NewGuid() : resident.Id;
+        if (_state.State.Residents.TryGetValue(id, out var existing) && existing.IsActive)
+            throw new InvalidOperationException($"Resident {id} already exists.");
 
-        _state.State.Residents[resident.Id] = state;
+        var state = new ResidentState { Id = id, IsActive = true };
+        ApplyResident(state, resident);
+        _state.State.Residents[id] = state;
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
     }
 
+    public async Task UpdateResidentAsync(ResidentInfo resident)
+    {
+        if (!_state.State.Residents.TryGetValue(resident.Id, out var state) || !state.IsActive)
+            throw new KeyNotFoundException($"Resident {resident.Id} not found");
+
+        ApplyResident(state, resident);
+        _state.State.UpdatedAt = DateTime.UtcNow;
+        await _state.WriteStateAsync();
+    }
+
+    private void ApplyResident(ResidentState state, ResidentInfo resident)
+    {
+        if (string.IsNullOrWhiteSpace(resident.FirstName) || string.IsNullOrWhiteSpace(resident.LastName))
+            throw new ArgumentException("A resident needs a first and last name.", nameof(resident));
+        if (!Enum.IsDefined(resident.Role))
+            throw new ArgumentException("Unknown resident role.", nameof(resident));
+        if (resident.OwnershipShare is < 0 or > 100)
+            throw new ArgumentException("The ownership share must be between 0 and 100%.", nameof(resident));
+
+        var unitNumber = string.IsNullOrWhiteSpace(resident.UnitNumber) ? null : resident.UnitNumber.Trim();
+        if (unitNumber is not null && !_state.State.Units.ContainsKey(unitNumber))
+            throw new ArgumentException($"Unit {unitNumber} does not exist in this building.", nameof(resident));
+
+        state.FirstName = resident.FirstName.Trim();
+        state.LastName = resident.LastName.Trim();
+        state.Phone = string.IsNullOrWhiteSpace(resident.Phone) ? null : resident.Phone.Trim();
+        state.Email = string.IsNullOrWhiteSpace(resident.Email) ? null : resident.Email.Trim();
+        state.Role = resident.Role;
+        state.UnitNumber = unitNumber;
+        state.OwnershipShare = resident.OwnershipShare;
+    }
+
     public async Task RemoveResidentAsync(Guid residentId)
     {
-        if (_state.State.Residents.TryGetValue(residentId, out var resident))
+        if (!_state.State.Residents.TryGetValue(residentId, out var resident))
+            throw new KeyNotFoundException($"Resident {residentId} not found");
+
+        if (resident.IsActive)
         {
             resident.IsActive = false;
             _state.State.UpdatedAt = DateTime.UtcNow;
@@ -282,18 +359,22 @@ public class BuildingGrain : Grain, IBuildingGrain
         if (string.IsNullOrWhiteSpace(request.RecipientName))
             throw new ArgumentException("Recipient name is required", nameof(request));
 
+        if (!Enum.IsDefined(request.RecipientType))
+            throw new ArgumentException("Unknown recipient type.", nameof(request));
+
         if (request.ExpectedReturn <= DateTime.UtcNow)
             throw new ArgumentException("Expected return date must be in the future", nameof(request));
 
         key.Status = KeyStatus.CheckedOut;
+        key.StatusNote = null;
         key.CurrentCheckout = new KeyCheckoutState
         {
             TransactionId = Guid.NewGuid(),
-            RecipientName = request.RecipientName,
-            RecipientPhone = request.RecipientPhone,
+            RecipientName = request.RecipientName.Trim(),
+            RecipientPhone = string.IsNullOrWhiteSpace(request.RecipientPhone) ? null : request.RecipientPhone.Trim(),
             RecipientResidentId = request.RecipientResidentId,
             RecipientType = request.RecipientType,
-            Purpose = request.Purpose,
+            Purpose = request.Purpose?.Trim() ?? string.Empty,
             CheckedOutAt = DateTime.UtcNow,
             ExpectedReturn = request.ExpectedReturn
         };
@@ -312,6 +393,9 @@ public class BuildingGrain : Grain, IBuildingGrain
         if (key.Status != KeyStatus.CheckedOut)
             throw new InvalidOperationException($"Key {keyId} is not checked out");
 
+        condition = string.IsNullOrWhiteSpace(condition) ? null : condition.Trim();
+        notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+
         if (key.CurrentCheckout is { } checkout)
         {
             checkout.ReturnedAt = DateTime.UtcNow;
@@ -321,12 +405,62 @@ public class BuildingGrain : Grain, IBuildingGrain
             key.CurrentCheckout = null;
         }
 
-        key.Status = KeyStatus.Available;
+        key.Status = condition?.ToLowerInvariant() switch
+        {
+            "lost" => KeyStatus.Lost,
+            "damaged" => KeyStatus.Damaged,
+            _ => KeyStatus.Available
+        };
+        key.StatusNote = key.Status == KeyStatus.Available ? null : notes;
 
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
 
         return MapKeyToInfo(key);
+    }
+
+    public async Task<KeyInfo> SetKeyStatusAsync(Guid keyId, KeyStatus status, string? note)
+    {
+        if (!_state.State.Keys.TryGetValue(keyId, out var key))
+            throw new KeyNotFoundException($"Key {keyId} not found");
+
+        if (status == KeyStatus.CheckedOut || !Enum.IsDefined(status))
+            throw new ArgumentException("Use check-out to hand a key out.", nameof(status));
+
+        if (key.Status == KeyStatus.CheckedOut)
+            throw new InvalidOperationException(
+                "This key is checked out. Check it in first (record it as lost or damaged there if needed).");
+
+        key.Status = status;
+        key.StatusNote = status == KeyStatus.Available || string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        _state.State.UpdatedAt = DateTime.UtcNow;
+        await _state.WriteStateAsync();
+
+        return MapKeyToInfo(key);
+    }
+
+    public Task<List<KeyCheckoutRecord>> GetKeyHistoryAsync(Guid keyId)
+    {
+        if (!_state.State.Keys.TryGetValue(keyId, out var key))
+            throw new KeyNotFoundException($"Key {keyId} not found");
+
+        var records = key.CheckoutHistory
+            .Concat(key.CurrentCheckout is null ? Enumerable.Empty<KeyCheckoutState>() : new[] { key.CurrentCheckout })
+            .OrderByDescending(c => c.CheckedOutAt)
+            .Select(c => new KeyCheckoutRecord
+            {
+                RecipientName = c.RecipientName,
+                RecipientPhone = c.RecipientPhone,
+                RecipientType = c.RecipientType,
+                Purpose = c.Purpose,
+                CheckedOutAt = c.CheckedOutAt,
+                ExpectedReturn = c.ExpectedReturn,
+                ReturnedAt = c.ReturnedAt,
+                ReturnCondition = c.ReturnCondition,
+                ReturnNotes = c.ReturnNotes
+            })
+            .ToList();
+        return Task.FromResult(records);
     }
 
     public Task<IEnumerable<KeyInfo>> GetOverdueKeysAsync()
@@ -343,17 +477,31 @@ public class BuildingGrain : Grain, IBuildingGrain
 
     public async Task AddKeyAsync(KeyInfo key)
     {
+        if (!Enum.IsDefined(key.Type))
+            throw new ArgumentException("Unknown key type.", nameof(key));
+
+        var identifier = key.Identifier?.Trim();
+        if (string.IsNullOrEmpty(identifier))
+            throw new ArgumentException("A key needs an identifier (the label on its tag).", nameof(key));
+        if (_state.State.Keys.Values.Any(k => k.Id != key.Id &&
+                string.Equals(k.Identifier, identifier, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"There is already a key labelled '{identifier}'.");
+
+        var unitNumber = string.IsNullOrWhiteSpace(key.UnitNumber) ? null : key.UnitNumber.Trim();
+        if (unitNumber is not null && !_state.State.Units.ContainsKey(unitNumber))
+            throw new ArgumentException($"Unit {unitNumber} does not exist in this building.", nameof(key));
+
         var state = new KeyState
         {
-            Id = key.Id,
+            Id = key.Id == Guid.Empty ? Guid.NewGuid() : key.Id,
             Type = key.Type,
-            UnitNumber = key.UnitNumber,
-            Identifier = key.Identifier,
-            Status = key.Status,
-            Description = key.Description
+            UnitNumber = unitNumber,
+            Identifier = identifier,
+            Status = key.Status == KeyStatus.CheckedOut || !Enum.IsDefined(key.Status) ? KeyStatus.Available : key.Status,
+            Description = string.IsNullOrWhiteSpace(key.Description) ? null : key.Description.Trim()
         };
 
-        _state.State.Keys[key.Id] = state;
+        _state.State.Keys[state.Id] = state;
         _state.State.UpdatedAt = DateTime.UtcNow;
         await _state.WriteStateAsync();
     }
@@ -362,64 +510,90 @@ public class BuildingGrain : Grain, IBuildingGrain
     {
         var workOrders = _state.State.WorkOrders.Values
             .Where(w => status == null || w.Status == status)
-            .Select(w => new WorkOrderInfo
-            {
-                Id = w.Id,
-                ReferenceNumber = w.ReferenceNumber,
-                Title = w.Title,
-                Description = w.Description,
-                Category = w.Category,
-                Priority = w.Priority,
-                Status = w.Status,
-                UnitNumber = w.UnitNumber,
-                ReportedByResidentId = w.ReportedByResidentId,
-                IsEmergency = w.IsEmergency,
-                CreatedAt = w.CreatedAt
-            }).ToArray();
+            .OrderByDescending(w => w.CreatedAt)
+            .Select(MapWorkOrderToInfo)
+            .ToArray();
         return Task.FromResult<IEnumerable<WorkOrderInfo>>(workOrders);
     }
 
     public async Task<WorkOrderInfo> CreateWorkOrderAsync(CreateWorkOrderRequest request)
     {
-        var reference = $"WO-{DateTime.UtcNow:yyyyMMdd}-{this.GetPrimaryKeyString()[..8]}-{Guid.NewGuid().ToString()[..4]}";
+        if (string.IsNullOrWhiteSpace(request.Title))
+            throw new ArgumentException("Describe the problem in a short title.", nameof(request));
+        if (!Enum.IsDefined(request.Category))
+            throw new ArgumentException("Unknown category.", nameof(request));
+        if (!Enum.IsDefined(request.Priority))
+            throw new ArgumentException("Unknown priority.", nameof(request));
 
+        var unitNumber = string.IsNullOrWhiteSpace(request.UnitNumber) ? null : request.UnitNumber.Trim();
+        if (unitNumber is not null && !_state.State.Units.ContainsKey(unitNumber))
+            throw new ArgumentException($"Unit {unitNumber} does not exist in this building.", nameof(request));
+
+        var now = DateTime.UtcNow;
+        if (_state.State.WorkOrderYear != now.Year)
+        {
+            _state.State.WorkOrderYear = now.Year;
+            _state.State.WorkOrderSequence = 0;
+        }
+        _state.State.WorkOrderSequence++;
+
+        var isEmergency = request.IsEmergency || request.Priority == Priority.Emergency;
         var workOrder = new WorkOrderState
         {
             Id = Guid.NewGuid(),
-            ReferenceNumber = reference,
-            Title = request.Title,
-            Description = request.Description,
+            ReferenceNumber = $"WO-{now.Year}-{_state.State.WorkOrderSequence:D4}",
+            Title = request.Title.Trim(),
+            Description = request.Description?.Trim() ?? string.Empty,
             Category = request.Category,
-            Priority = request.Priority,
+            Priority = isEmergency ? Priority.Emergency : request.Priority,
             Status = WorkOrderStatus.New,
-            UnitNumber = request.UnitNumber,
+            UnitNumber = unitNumber,
             ReportedByResidentId = request.ReportedByResidentId,
-            IsEmergency = request.IsEmergency,
-            EmergencyDeadline = request.IsEmergency ? DateTime.UtcNow.AddHours(48) : null,
-            CreatedAt = DateTime.UtcNow
+            ReportedByName = request.ReportedByName,
+            IsEmergency = isEmergency,
+            EmergencyDeadline = isEmergency ? now.AddHours(48) : null,
+            CreatedAt = now
         };
 
         _state.State.WorkOrders[workOrder.Id] = workOrder;
-        _state.State.UpdatedAt = DateTime.UtcNow;
+        _state.State.UpdatedAt = now;
         await _state.WriteStateAsync();
 
         return MapWorkOrderToInfo(workOrder);
     }
 
-    public async Task<WorkOrderInfo> UpdateWorkOrderStatusAsync(Guid workOrderId, WorkOrderStatus status, string? notes)
+    public async Task<WorkOrderInfo> UpdateWorkOrderStatusAsync(
+        Guid workOrderId, WorkOrderStatus status, string? notes, string? authorName = null)
     {
         if (!_state.State.WorkOrders.TryGetValue(workOrderId, out var workOrder))
             throw new KeyNotFoundException($"Work order {workOrderId} not found");
 
+        if (!Enum.IsDefined(status))
+            throw new ArgumentException("Unknown work order status.", nameof(status));
+
         if (workOrder.Status is WorkOrderStatus.Completed or WorkOrderStatus.Cancelled)
             throw new InvalidOperationException(
-                $"Work order {workOrderId} is already {workOrder.Status} and can no longer be changed");
+                $"Work order {workOrder.ReferenceNumber} is already {workOrder.Status} and can no longer be changed");
 
+        var text = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+        var statusChanged = workOrder.Status != status;
+        if (!statusChanged && text is null)
+            return MapWorkOrderToInfo(workOrder);
+
+        var now = DateTime.UtcNow;
         workOrder.Status = status;
         if (status == WorkOrderStatus.Completed)
-            workOrder.CompletedAt = DateTime.UtcNow;
+            workOrder.CompletedAt = now;
 
-        _state.State.UpdatedAt = DateTime.UtcNow;
+        workOrder.Notes.Add(new WorkOrderNoteState
+        {
+            At = now,
+            AuthorName = authorName,
+            Status = statusChanged ? status : null,
+            Text = text
+        });
+
+        _state.State.UpdatedAt = now;
         await _state.WriteStateAsync();
 
         return MapWorkOrderToInfo(workOrder);
@@ -810,22 +984,48 @@ public class BuildingGrain : Grain, IBuildingGrain
         if (fee.FixedAmount < 0)
             throw new ArgumentException("Fixed amount cannot be negative", nameof(fee));
 
-        foreach (var existing in _state.State.FeeStructures)
-        {
-            existing.IsActive = false;
-        }
+        var now = DateTime.UtcNow;
+        var effectiveFrom = fee.EffectiveFrom == default
+            ? now
+            : DateTime.SpecifyKind(fee.EffectiveFrom, DateTimeKind.Utc);
+        if (effectiveFrom.Year < 2000)
+            throw new ArgumentException("The fee's start date is not valid.", nameof(fee));
 
+        _state.State.FeeStructures.RemoveAll(f => f.EffectiveFrom == effectiveFrom);
         _state.State.FeeStructures.Add(new FeeStructureState
         {
-            Name = fee.Name,
+            Name = fee.Name.Trim(),
             AmountPerM2 = fee.AmountPerM2,
             FixedAmount = fee.FixedAmount,
-            EffectiveFrom = fee.EffectiveFrom == default ? DateTime.UtcNow : fee.EffectiveFrom,
-            IsActive = true
+            EffectiveFrom = effectiveFrom
         });
 
-        _state.State.UpdatedAt = DateTime.UtcNow;
+        var current = _state.State.FeeStructures
+            .Where(f => f.EffectiveFrom <= now)
+            .OrderByDescending(f => f.EffectiveFrom)
+            .FirstOrDefault();
+        foreach (var existing in _state.State.FeeStructures)
+        {
+            existing.IsActive = ReferenceEquals(existing, current);
+        }
+
+        _state.State.UpdatedAt = now;
         await _state.WriteStateAsync();
+    }
+
+    public Task<List<FeeStructureInfo>> GetFeeStructuresAsync()
+    {
+        var fees = _state.State.FeeStructures
+            .OrderByDescending(f => f.EffectiveFrom)
+            .Select(f => new FeeStructureInfo
+            {
+                Name = f.Name,
+                AmountPerM2 = f.AmountPerM2,
+                FixedAmount = f.FixedAmount,
+                EffectiveFrom = f.EffectiveFrom
+            })
+            .ToList();
+        return Task.FromResult(fees);
     }
 
     private static KeyInfo MapKeyToInfo(KeyState k) => new()
@@ -836,6 +1036,7 @@ public class BuildingGrain : Grain, IBuildingGrain
         Identifier = k.Identifier,
         Status = k.Status,
         Description = k.Description,
+        StatusNote = k.StatusNote,
         CurrentCheckout = k.CurrentCheckout != null ? new KeyCheckoutInfo
         {
             RecipientName = k.CurrentCheckout.RecipientName,
@@ -858,8 +1059,18 @@ public class BuildingGrain : Grain, IBuildingGrain
         Status = w.Status,
         UnitNumber = w.UnitNumber,
         ReportedByResidentId = w.ReportedByResidentId,
+        ReportedByName = w.ReportedByName,
         IsEmergency = w.IsEmergency,
-        CreatedAt = w.CreatedAt
+        CreatedAt = w.CreatedAt,
+        CompletedAt = w.CompletedAt,
+        EmergencyDeadline = w.EmergencyDeadline,
+        Notes = w.Notes.Select(n => new WorkOrderNoteInfo
+        {
+            At = n.At,
+            AuthorName = n.AuthorName,
+            Status = n.Status,
+            Text = n.Text
+        }).ToList()
     };
 }
 
@@ -891,4 +1102,7 @@ public class BuildingAggregateState
     [Id(20)] public List<FeeStructureState> FeeStructures { get; set; } = new();
 
     [Id(21)] public Dictionary<Guid, DocumentState> Documents { get; set; } = new();
+
+    [Id(30)] public int WorkOrderYear { get; set; }
+    [Id(31)] public int WorkOrderSequence { get; set; }
 }

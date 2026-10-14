@@ -20,13 +20,11 @@ public class OrleansClusterHealthCheck : IHealthCheck
     {
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(Timeout);
-
-            await _grainFactory.GetGrain<IBuildingRegistryGrain>("global").GetAllAsync();
+            await _grainFactory.GetGrain<IBuildingRegistryGrain>("global").GetAllAsync()
+                .WaitAsync(Timeout, cancellationToken);
             return HealthCheckResult.Healthy("Orleans cluster reachable");
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (TimeoutException)
         {
             return HealthCheckResult.Unhealthy("Orleans cluster did not answer within 3 seconds");
         }

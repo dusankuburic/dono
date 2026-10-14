@@ -6,16 +6,19 @@
 
 <MudText Typo="Typo.h3" Class="mb-4">Buildings</MudText>
 
-<MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NavigateToNewBuilding" Class="mb-4">
-    Add Building
-</MudButton>
+@if (_canManage)
+{
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NavigateToNewBuilding" Class="mb-4">
+        Add Building
+    </MudButton>
+}
 
 @if (_loadError is not null)
 {
     <MudAlert Severity="Severity.Error">@_loadError</MudAlert>
 }
 
-<MudTable Items="@_buildings" Hover="true" Stripable="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
+<MudTable Items="@_buildings" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
     <HeaderContent>
         <MudTh>Name</MudTh>
         <MudTh>Address</MudTh>
@@ -31,7 +34,7 @@
         <MudTd DataLabel="Residents">@context.ResidentCount</MudTd>
         <MudTd DataLabel="Open Work Orders">@context.OpenWorkOrders</MudTd>
         <MudTd DataLabel="Actions">
-            <MudButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" OnClick="@(() => ViewBuilding(context.Id))" />
+            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Title="Open building" OnClick="@(() => ViewBuilding(context.Id))" />
         </MudTd>
     </RowTemplate>
     <NoRecordsContent>
@@ -43,9 +46,18 @@
     private List<BuildingSummary> _buildings = new();
     private bool _loading = true;
     private string? _loadError;
+    private bool _canManage;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
+        if (AuthState is not null)
+        {
+            _canManage = UserRoles.CanManage((await AuthState).User);
+        }
+
         try
         {
             _buildings = await BuildingService.GetBuildingsAsync();

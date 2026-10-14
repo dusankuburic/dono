@@ -1,323 +1,375 @@
 targetScope = 'resourceGroup'
 
-@description('Azure region; defaults to the resource group location.')
+@description('Region for everything except the Static Web App.')
 param location string = resourceGroup().location
 
-@description('Name prefix for every resource.')
-param appName string = 'building-manager'
+@description('Static Web Apps are offered in a few regions only.')
+@allowed(['westeurope', 'eastus2', 'centralus', 'westus2', 'eastasia'])
+param staticWebAppLocation string = 'westeurope'
 
-@description('PostgreSQL administrator login.')
+@description('Short prefix for resource names (lowercase letters and digits).')
+@minLength(2)
+@maxLength(8)
+param namePrefix string = 'bm'
+
+@description('Container image of the API. The default placeholder lets the first deployment create the app before the real image is pushed.')
+param apiImage string = 'mcr.microsoft.com/dotnet/samples:aspnetapp'
+
+@minValue(1)
+@maxValue(10)
+@description('One replica is cheapest; two keep the API up while a replica restarts.')
+param minReplicas int = 1
+
+@minValue(1)
+@maxValue(10)
+param maxReplicas int = 3
+
 param postgresAdminLogin string = 'bmadmin'
 
-@description('PostgreSQL administrator password.')
 @secure()
+@description('PostgreSQL administrator password.')
 param postgresAdminPassword string
 
-@description('JWT signing secret for the API (min 32 chars; stored in Key Vault).')
 @secure()
+@description('JWT signing secret, at least 32 characters.')
+@minLength(32)
 param jwtSecret string
 
-@description('Admin account email seeded on first startup (stored in Key Vault).')
-param adminEmail string
+@description('Email of the Admin account seeded on startup; empty to skip seeding.')
+param adminEmail string = ''
 
-@description('Admin account password (stored in Key Vault).')
 @secure()
-param adminPassword string
+@description('Password of the seeded Admin account.')
+param adminPassword string = ''
 
-@description('Origins the API allows via CORS (the Blazor client origins).')
-param allowedOrigins array = []
+@description('Keep PostgreSQL backups in a second region as well (costs more).')
+param postgresGeoRedundantBackup bool = false
 
-@description('Maximum silo replicas. Orleans silo-to-silo traffic inside Container Apps is single-replica for now.')
-param siloMaxReplicas int = 1
+var suffix = uniqueString(resourceGroup().id)
+var isPlaceholderImage = startsWith(apiImage, 'mcr.microsoft.com/dotnet/samples')
+var seedAdmin = !empty(adminEmail) && !empty(adminPassword)
+var orleansDatabase = 'building_manager_orleans'
+var documentsContainer = 'building-documents'
+var acrPullRole = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+var keyVaultSecretsUserRole = '4633458b-17de-408a-b874-0445c86b69e6'
 
-var unique = uniqueString(resourceGroup().id)
-var acrName = toLower(take('${replace(appName, '-', '')}${unique}', 40))
-var kvName = take('${appName}-kv-${unique}', 24)
-var pgName = '${appName}-pg-${unique}'
-var storageName = toLower(take('${replace(appName, '-', '')}docs${unique}', 24))
-var envName = '${appName}-env'
-var dbConnString = 'Host=${pgServer.properties.fullyQualifiedDomainName};Port=5432;Database=building_manager_orleans;Username=${postgresAdminLogin};Password=${postgresAdminPassword}'
-
-resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
-  name: '${appName}-vnet'
+resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: '${namePrefix}-logs-${suffix}'
   location: location
   properties: {
-    addressSpace: { addressPrefixes: ['10.0.0.0/16'] }
-    subnets: [
-      {
-        name: 'aca'
-        properties: {
-          addressPrefix: '10.0.0.0/23'
-          delegations: [
-            { name: 'Microsoft.App.environments', properties: { serviceName: 'Microsoft.App/environments' } }
-          ]
-        }
-      }
-    ]
+    sku: { name: 'PerGB2018' }
+    retentionInDays: 30
   }
 }
 
-resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
-  name: acrName
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: '${namePrefix}-ai-${suffix}'
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logs.id
+  }
+}
+
+resource apiIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${namePrefix}-api-id-${suffix}'
+  location: location
+}
+
+resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+  name: '${namePrefix}acr${suffix}'
   location: location
   sku: { name: 'Basic' }
-  properties: { adminUserEnabled: false }
-}
-
-resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
-  name: storageName
-  location: location
-  kind: 'StorageV2'
-  sku: { name: 'Standard_LRS' }
   properties: {
-    allowBlobPublicAccess: false
-    minimumTlsVersion: 'TLS1_2'
-    supportsHttpsTrafficOnly: true
+    adminUserEnabled: false
   }
 }
 
-resource staticWebsite 'Microsoft.Storage/storageAccounts/blobServices@2022-09-01' = {
-  parent: storage
-  name: 'default'
+resource registryPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, apiIdentity.id, acrPullRole)
+  scope: registry
   properties: {
-    staticWebsite: {
-      enabled: true
-      indexDocument: 'index.html'
-      errorDocument404Path: 'index.html'
-    }
-    cors: {
-      corsRules: [
-        {
-          allowedOrigins: empty(allowedOrigins) ? ['https://${storageName}.blob.${environment().suffixes.storage}'] : allowedOrigins
-          allowedMethods: ['GET']
-          allowedHeaders: ['*']
-          exposedHeaders: ['*']
-          maxAgeInSeconds: 3600
-        }
-      ]
-    }
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRole)
+    principalId: apiIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
-resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01' = {
-  name: pgName
+resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
+  name: '${namePrefix}-pg-${suffix}'
   location: location
-  sku: { name: 'Standard_B1ms', tier: 'Burstable' }
+  sku: {
+    name: 'Standard_B1ms'
+    tier: 'Burstable'
+  }
   properties: {
     version: '16'
     administratorLogin: postgresAdminLogin
     administratorLoginPassword: postgresAdminPassword
     storage: { storageSizeGB: 32 }
-    backup: { backupRetentionDays: 7 }
+    backup: {
+      backupRetentionDays: 7
+      geoRedundantBackup: postgresGeoRedundantBackup ? 'Enabled' : 'Disabled'
+    }
     highAvailability: { mode: 'Disabled' }
-    network: { publicNetworkAccess: 'Enabled' }
-    authConfig: {
-      activeDirectoryAuthEnabled: false
-      passwordAuthEnabled: true
+  }
+}
+
+resource orleansDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = {
+  parent: postgres
+  name: orleansDatabase
+  properties: {
+    charset: 'UTF8'
+    collation: 'en_US.utf8'
+  }
+}
+
+resource postgresAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = {
+  parent: postgres
+  name: 'AllowAzureServices'
+  properties: {
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
+  }
+}
+
+resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: '${namePrefix}st${suffix}'
+  location: location
+  kind: 'StorageV2'
+  sku: { name: 'Standard_LRS' }
+  properties: {
+    minimumTlsVersion: 'TLS1_2'
+    allowBlobPublicAccess: false
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+  properties: {
+    deleteRetentionPolicy: {
+      enabled: true
+      days: 14
+    }
+    containerDeleteRetentionPolicy: {
+      enabled: true
+      days: 14
     }
   }
+}
 
-  resource orleansDatabase 'databases' = {
-    name: 'building_manager_orleans'
-    properties: { charset: 'UTF8' }
-  }
-
-  resource allowAzure 'firewallRules' = {
-    name: 'allow-azure-services'
-    properties: { startIpAddress: '0.0.0.0', endIpAddress: '0.0.0.0' }
+resource documents 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: documentsContainer
+  properties: {
+    publicAccess: 'None'
   }
 }
 
-resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: kvName
+resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: '${namePrefix}-kv-${suffix}'
   location: location
   properties: {
-    sku: { name: 'standard', family: 'A' }
     tenantId: subscription().tenantId
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
     enableRbacAuthorization: true
+    enableSoftDelete: true
     softDeleteRetentionInDays: 7
-    enablePurgeProtection: false
   }
 }
 
-resource kvJwtSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
+resource vaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(vault.id, apiIdentity.id, keyVaultSecretsUserRole)
+  scope: vault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRole)
+    principalId: apiIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource jwtSecretValue 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: vault
   name: 'Jwt--Secret'
   properties: { value: jwtSecret }
 }
 
-resource kvAdminEmail 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
-  name: 'Auth--AdminEmail'
-  properties: { value: adminEmail }
-}
-
-resource kvAdminPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
-  name: 'Auth--AdminPassword'
-  properties: { value: adminPassword }
-}
-
-resource kvOrleansCs 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
+resource orleansConnection 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: vault
   name: 'ConnectionStrings--OrleansStorage'
-  properties: { value: dbConnString }
+  properties: {
+    value: 'Host=${postgres.properties.fullyQualifiedDomainName};Port=5432;Database=${orleansDatabase};Username=${postgresAdminLogin};Password=${postgresAdminPassword};SSL Mode=VerifyFull'
+  }
 }
 
-resource kvBlobCs 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
+resource blobConnection 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: vault
   name: 'Storage--BlobConnectionString'
   properties: {
     value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
   }
 }
 
-resource appEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: envName
-  location: location
-  properties: {
-    vnetConfiguration: {
-      infrastructureSubnetId: vnet.properties.subnets[0].id
-      internal: false
-    }
-    zoneRedundant: false
-  }
+resource adminEmailValue 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (seedAdmin) {
+  parent: vault
+  name: 'Auth--AdminEmail'
+  properties: { value: adminEmail }
 }
 
-resource siloApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: '${appName}-silo'
+resource adminPasswordValue 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (seedAdmin) {
+  parent: vault
+  name: 'Auth--AdminPassword'
+  properties: { value: adminPassword }
+}
+
+resource client 'Microsoft.Web/staticSites@2023-12-01' = {
+  name: '${namePrefix}-web-${suffix}'
+  location: staticWebAppLocation
+  sku: {
+    name: 'Free'
+    tier: 'Free'
+  }
+  properties: {}
+}
+
+resource containerEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: '${namePrefix}-env-${suffix}'
   location: location
-  identity: { type: 'SystemAssigned' }
   properties: {
-    environmentId: appEnv.id
-    configuration: {
-      activeRevisionsMode: 'Single'
-      registries: [
-        { server: acr.properties.loginServer, identity: 'system' }
-      ]
-      secrets: [
-        { name: 'orleans-connection', keyVaultUrl: kvOrleansCs.properties.secretUri, identity: 'system' }
-      ]
-      ingress: {
-        external: false
-        targetPort: 8080
-        transport: 'http'
-        additionalPortMappings: [
-          { exposedPort: 30000, targetPort: 30000, external: false }
-        ]
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: logs.properties.customerId
+        sharedKey: logs.listKeys().primarySharedKey
       }
     }
-    template: {
-      scale: { minReplicas: 1, maxReplicas: siloMaxReplicas }
-      containers: [
-        {
-          name: 'silo'
-          image: '${acr.properties.loginServer}/silo:latest'
-          resources: { cpu: json('1.0'), memory: '2Gi' }
-          env: [
-            { name: 'ConnectionStrings__OrleansStorage', secretRef: 'orleans-connection' }
-          ]
-        }
-      ]
-    }
   }
 }
 
-resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: '${appName}-api'
+var healthProbes = [
+  {
+    type: 'Liveness'
+    httpGet: {
+      path: '/health/live'
+      port: 8080
+    }
+    periodSeconds: 15
+  }
+  {
+    type: 'Readiness'
+    httpGet: {
+      path: '/health/ready'
+      port: 8080
+    }
+    periodSeconds: 10
+    failureThreshold: 3
+  }
+  {
+    type: 'Startup'
+    httpGet: {
+      path: '/health/live'
+      port: 8080
+    }
+    periodSeconds: 5
+    failureThreshold: 24
+  }
+]
+
+resource api 'Microsoft.App/containerApps@2024-03-01' = {
+  name: '${namePrefix}-api-${suffix}'
   location: location
-  identity: { type: 'SystemAssigned' }
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${apiIdentity.id}': {} }
+  }
+  dependsOn: [
+    registryPull
+    vaultSecretsUser
+    jwtSecretValue
+    orleansConnection
+    blobConnection
+    adminEmailValue
+    adminPasswordValue
+    orleansDb
+    documents
+  ]
   properties: {
-    environmentId: appEnv.id
+    managedEnvironmentId: containerEnv.id
     configuration: {
       activeRevisionsMode: 'Single'
-      registries: [
-        { server: acr.properties.loginServer, identity: 'system' }
-      ]
-      secrets: [
-        { name: 'orleans-connection', keyVaultUrl: kvOrleansCs.properties.secretUri, identity: 'system' }
-      ]
       ingress: {
         external: true
         targetPort: 8080
         transport: 'http'
+        allowInsecure: false
+        additionalPortMappings: [
+          {
+            external: false
+            targetPort: 11111
+          }
+        ]
       }
-    }
-    template: {
-      scale: { minReplicas: 1, maxReplicas: 3 }
-      containers: [
+      registries: [
         {
-          name: 'api'
-          image: '${acr.properties.loginServer}/api:latest'
-          resources: { cpu: json('1.0'), memory: '1Gi' }
-          env: [
-            { name: 'ConnectionStrings__OrleansStorage', secretRef: 'orleans-connection' }
-            { name: 'KeyVault__VaultUri', value: keyVault.properties.vaultUri }
-            { name: 'Storage__ContainerName', value: 'building-documents' }
-            { name: 'Orleans__ClusterId', value: 'building-manager' }
-            { name: 'Orleans__ServiceId', value: 'building-manager-service' }
-            { name: 'Cors__AllowedOrigins__0', value: 'https://${storageName}.blob.${environment().suffixes.storage}' }
-          ]
+          server: registry.properties.loginServer
+          identity: apiIdentity.id
         }
       ]
     }
+    template: {
+      terminationGracePeriodSeconds: 45
+      containers: [
+        {
+          name: 'api'
+          image: apiImage
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: [
+            { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
+            { name: 'ASPNETCORE_FORWARDEDHEADERS_ENABLED', value: 'true' }
+            { name: 'AZURE_CLIENT_ID', value: apiIdentity.properties.clientId }
+            { name: 'KeyVault__VaultUri', value: vault.properties.vaultUri }
+            { name: 'Orleans__ClusterId', value: 'building-manager' }
+            { name: 'Orleans__ServiceId', value: 'building-manager-service' }
+            { name: 'Storage__ContainerName', value: documentsContainer }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+            { name: 'Cors__AllowedOrigins__0', value: 'https://${client.properties.defaultHostname}' }
+          ]
+          probes: isPlaceholderImage ? [] : healthProbes
+        }
+      ]
+      scale: {
+        minReplicas: minReplicas
+        maxReplicas: maxReplicas
+        rules: [
+          {
+            name: 'http'
+            http: {
+              metadata: { concurrentRequests: '50' }
+            }
+          }
+        ]
+      }
+    }
   }
 }
 
-resource acrPullSilo 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, siloApp.id, 'AcrPull')
-  scope: acr
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-    principalId: siloApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource acrPullApi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, apiApp.id, 'AcrPull')
-  scope: acr
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-    principalId: apiApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-var kvSecretsUserRole = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
-
-resource kvSiloRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, siloApp.id, 'KeyVaultSecretsUser')
-  scope: keyVault
-  properties: {
-    roleDefinitionId: kvSecretsUserRole
-    principalId: siloApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource kvApiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, apiApp.id, 'KeyVaultSecretsUser')
-  scope: keyVault
-  properties: {
-    roleDefinitionId: kvSecretsUserRole
-    principalId: apiApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource blobDataOwnerStorage 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storage.id, apiApp.id, 'StorageBlobDataContributor')
-  scope: storage
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
-    principalId: apiApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-output acrLoginServer string = acr.properties.loginServer
-output apiUrl string = 'https://${apiApp.properties.configuration.ingress.fqdn}'
-output blazorUrl string = 'https://${storageName}.blob.${environment().suffixes.storage}'
-output keyVaultUri string = keyVault.properties.vaultUri
-output postgresName string = pgServer.name
+output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'
+output clientUrl string = 'https://${client.properties.defaultHostname}'
+output containerAppName string = api.name
+output registryName string = registry.name
+output registryLoginServer string = registry.properties.loginServer
+output staticWebAppName string = client.name
+output keyVaultName string = vault.name
+output postgresServerName string = postgres.name
+output postgresHost string = postgres.properties.fullyQualifiedDomainName
+output postgresAdminLogin string = postgresAdminLogin
+output orleansDatabase string = orleansDatabase

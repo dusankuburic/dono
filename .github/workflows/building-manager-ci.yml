@@ -1,0 +1,64 @@
+name: building-manager CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "building-manager/building-manager-dotnet/**"
+      - ".github/workflows/building-manager-*.yml"
+  pull_request:
+    paths:
+      - "building-manager/building-manager-dotnet/**"
+      - ".github/workflows/building-manager-*.yml"
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_TELEMETRY_OPTOUT: true
+
+defaults:
+  run:
+    working-directory: building-manager/building-manager-dotnet
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore BuildingManager.sln
+
+      - name: Build
+        run: dotnet build BuildingManager.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test tests/BuildingManager.Tests -c Release --no-build --logger "trx;LogFileName=tests.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: building-manager/building-manager-dotnet/tests/BuildingManager.Tests/TestResults/*.trx
+
+      - name: Check the Azure template
+        run: |
+          az bicep build --file infra/azure/main.bicep --stdout > /dev/null
+          az bicep lint --file infra/azure/main.bicep
+
+  container-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f src/BuildingManager.Api/Dockerfile -t building-manager-api:ci .
+
+      - name: Build client image
+        run: docker build -f src/BuildingManager.Blazor/Dockerfile -t building-manager-client:ci .

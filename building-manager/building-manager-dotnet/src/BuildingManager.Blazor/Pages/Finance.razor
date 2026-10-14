@@ -135,9 +135,23 @@ else
     private DateTime? _expDate = DateTime.Today;
     private string? _expError;
 
+    private List<FeeStructureInfo> _fees = new();
     private string _feeName = "Standard";
     private decimal _amountPerM2;
     private decimal? _fixedAmount;
+
+    private int _feeStartMonths;
+
+    private DateTime? FeeStart => _feeStartMonths == 0
+        ? null
+        : new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1).AddMonths(_feeStartMonths);
+
+    private string FeeStartText(int monthsAhead)
+    {
+        var month = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1).AddMonths(monthsAhead);
+        var name = FinanceLabels.MonthName(month.Year, month.Month);
+        return monthsAhead == 0 ? $"Now (applies to {name})" : $"1 {name}";
+    }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -162,10 +176,26 @@ else
 
             _summary = await BuildingService.GetFinancialSummaryAsync(_buildingId);
             await LoadMonth();
+            if (_canManage)
+            {
+                await LoadFees(prefill: true);
+            }
         }
         catch (Exception ex)
         {
             _loadError = $"Could not load the finances: {ex.Message}";
+        }
+    }
+
+    private async Task LoadFees(bool prefill)
+    {
+        _fees = await BuildingService.GetFeeStructuresAsync(_buildingId!);
+        var current = _fees.Where(f => f.EffectiveFrom <= DateTime.UtcNow).MaxBy(f => f.EffectiveFrom);
+        if (prefill && current is not null)
+        {
+            _feeName = current.Name;
+            _amountPerM2 = current.AmountPerM2;
+            _fixedAmount = current.FixedAmount;
         }
     }
 
@@ -336,8 +366,11 @@ else
         _busy = true;
         try
         {
-            await BuildingService.SetFeeStructureAsync(_buildingId!, string.IsNullOrWhiteSpace(_feeName) ? "Standard" : _feeName, _amountPerM2, _fixedAmount);
-            Snackbar.Add("Fee structure saved", Severity.Success);
+            await BuildingService.SetFeeStructureAsync(_buildingId!, string.IsNullOrWhiteSpace(_feeName) ? "Standard" : _feeName.Trim(),
+                _amountPerM2, _fixedAmount, FeeStart);
+            Snackbar.Add(FeeStart is { } start ? $"Fee scheduled from {FinanceLabels.MonthName(start.Year, start.Month)}" : "Fee saved", Severity.Success);
+            _feeStartMonths = 0;
+            await LoadFees(prefill: false);
             await RefreshAfterChange(null);
         }
         catch (Exception ex)
@@ -606,24 +639,69 @@ else
 
     private RenderFragment FeeSettingsTab => __builder =>
     {
+        <MudTable Items="@_fees" Dense="true" Breakpoint="Breakpoint.Sm" Class="mb-4">
+            <HeaderContent>
+                <MudTh>Fee</MudTh>
+                <MudTh>Per m²</MudTh>
+                <MudTh>Fixed</MudTh>
+                <MudTh>Starts</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Fee">@context.Name</MudTd>
+                <MudTd DataLabel="Per m²">@FinanceLabels.Money(context.AmountPerM2)</MudTd>
+                <MudTd DataLabel="Fixed">@(context.FixedAmount is { } fixedAmount ? FinanceLabels.Money(fixedAmount) : "-")</MudTd>
+                <MudTd DataLabel="Starts">@context.EffectiveFrom.ToLocalTime().ToString("yyyy-MM-dd")</MudTd>
+                <MudTd>
+                    @{ var (text, color) = FeeState(context); }
+                    <MudChip Size="Size.Small" Color="@color">@text</MudChip>
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudTd Colspan="5" Class="pa-2">No fee has been set yet, so nothing is due.</MudTd>
+            </NoRecordsContent>
+        </MudTable>
+
         <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">@(_fees.Count == 0 ? "Set the monthly fee" : "Change the fee")</MudText>
             <MudGrid AlignItems="End">
-                <MudItem xs="12" sm="6" md="4">
-                    <MudTextField @bind-Value="_feeName" Label="Fee name" />
-                </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudNumericField @bind-Value="_amountPerM2" Label="Amount per m² (RSD)" Min="0" />
-                </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudNumericField @bind-Value="_fixedAmount" Label="Fixed amount (RSD, optional)" Min="0" />
+                    <MudTextField @bind-Value="_feeName" Label="Fee name" MaxLength="100" />
                 </MudItem>
                 <MudItem xs="12" sm="6" md="2">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveFee" Disabled="@_busy">Save</MudButton>
+                    <MudNumericField @bind-Value="_amountPerM2" Label="Amount per m² (RSD)" Min="0" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="2">
+                    <MudNumericField @bind-Value="_fixedAmount" Label="Fixed amount (RSD, optional)" Min="0" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="int" @bind-Value="_feeStartMonths" Label="Starts" ToStringFunc="@FeeStartText">
+                        @for (var i = 0; i <= 12; i++)
+                        {
+                            var monthsAhead = i;
+                            <MudSelectItem T="int" Value="@monthsAhead">@FeeStartText(monthsAhead)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveFee" Disabled="@_busy">
+                        @(_feeStartMonths == 0 ? "Save" : "Schedule")
+                    </MudButton>
                 </MudItem>
             </MudGrid>
             <MudText Typo="Typo.caption" Class="mt-2">
-                Monthly fee = fixed amount + (amount per m² × unit area). A new fee applies from the current month; earlier months keep the fee that was in force then.
+                Monthly fee = fixed amount + (amount per m² × unit area). A fee starting now applies to the whole current month;
+                a scheduled fee applies from the 1st of its month. Earlier months keep the fee that was in force then.
+                Scheduling again for the same month replaces that scheduled fee.
             </MudText>
         </MudPaper>
     };
+
+    private (string Text, Color Color) FeeState(FeeStructureInfo fee)
+    {
+        if (fee.EffectiveFrom > DateTime.UtcNow)
+            return ("Scheduled", Color.Info);
+        var current = _fees.Where(f => f.EffectiveFrom <= DateTime.UtcNow).MaxBy(f => f.EffectiveFrom);
+        return ReferenceEquals(fee, current) ? ("In force", Color.Success) : ("Replaced", Color.Default);
+    }
 }

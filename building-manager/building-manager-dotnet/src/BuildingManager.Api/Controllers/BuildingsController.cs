@@ -102,6 +102,32 @@ public class BuildingsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created);
     }
 
+    [HttpGet("{buildingId}/info")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<BuildingInfo>> GetBuildingInfo(string buildingId) =>
+        Ok(await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetInfoAsync());
+
+    [HttpPut("{buildingId}")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> UpdateBuilding(string buildingId, [FromBody] BuildingInfoRequest request)
+    {
+        await _grainFactory.GetGrain<IBuildingGrain>(buildingId).UpdateInfoAsync(new BuildingInfo
+        {
+            Name = request.Name,
+            Street = request.Street,
+            StreetNumber = request.StreetNumber,
+            City = request.City,
+            PostalCode = request.PostalCode,
+            YearBuilt = request.YearBuilt,
+            TotalFloors = request.TotalFloors,
+            HasElevator = request.HasElevator,
+            HasParking = request.HasParking,
+            TotalAreaM2 = request.TotalAreaM2 ?? 0
+        });
+        return Ok();
+    }
+
     [HttpGet("{buildingId}/units")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<UnitInfo>>> GetUnits(string buildingId)
@@ -119,8 +145,7 @@ public class BuildingsController : ControllerBase
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
         var unit = new UnitInfo
         {
-            Id = Guid.NewGuid(),
-            Number = request.Number,
+            Number = request.Number.Trim(),
             Floor = request.Floor,
             Type = request.Type,
             Status = request.Status,
@@ -130,6 +155,15 @@ public class BuildingsController : ControllerBase
         };
         await grain.AddOrUpdateUnitAsync(unit);
         return StatusCode(StatusCodes.Status201Created);
+    }
+
+    [HttpDelete("{buildingId}/units/{unitNumber}")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<IActionResult> RemoveUnit(string buildingId, string unitNumber)
+    {
+        await _grainFactory.GetGrain<IBuildingGrain>(buildingId).RemoveUnitAsync(unitNumber.Trim());
+        return Ok();
     }
 
     [HttpGet("{buildingId}/residents")]
@@ -147,19 +181,9 @@ public class BuildingsController : ControllerBase
     public async Task<ActionResult> AddResident(string buildingId, [FromBody] ResidentInfoRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
-        var resident = new ResidentInfo
-        {
-            Id = Guid.NewGuid(),
-            UnitNumber = request.UnitNumber,
-            FirstName = request.FirstName,
-            LastName = request.LastName,
-            Email = request.Email,
-            Phone = request.Phone,
-            Role = request.Role,
-            OwnershipShare = request.OwnershipShare
-        };
+        var resident = ToResident(Guid.NewGuid(), request);
         await grain.AddResidentAsync(resident);
-        return StatusCode(StatusCodes.Status201Created);
+        return StatusCode(StatusCodes.Status201Created, resident);
     }
 
     [HttpPut("{buildingId}/residents/{residentId:guid}")]
@@ -167,18 +191,7 @@ public class BuildingsController : ControllerBase
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<IActionResult> UpdateResident(string buildingId, Guid residentId, [FromBody] ResidentInfoRequest request)
     {
-        var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
-        await grain.AddResidentAsync(new ResidentInfo
-        {
-            Id = residentId,
-            UnitNumber = request.UnitNumber,
-            FirstName = request.FirstName,
-            LastName = request.LastName,
-            Email = request.Email,
-            Phone = request.Phone,
-            Role = request.Role,
-            OwnershipShare = request.OwnershipShare
-        });
+        await _grainFactory.GetGrain<IBuildingGrain>(buildingId).UpdateResidentAsync(ToResident(residentId, request));
         return Ok();
     }
 
@@ -191,14 +204,17 @@ public class BuildingsController : ControllerBase
         return Ok();
     }
 
-    [HttpDelete("{buildingId}/units/{unitNumber}")]
-    [Authorize(Policy = AuthPolicies.ManageOnly)]
-    [Authorize(Policy = AuthPolicies.BuildingAccess)]
-    public async Task<IActionResult> RemoveUnit(string buildingId, string unitNumber)
+    private static ResidentInfo ToResident(Guid id, ResidentInfoRequest request) => new()
     {
-        await _grainFactory.GetGrain<IBuildingGrain>(buildingId).RemoveUnitAsync(unitNumber);
-        return Ok();
-    }
+        Id = id,
+        UnitNumber = request.UnitNumber,
+        FirstName = request.FirstName,
+        LastName = request.LastName,
+        Email = request.Email,
+        Phone = request.Phone,
+        Role = request.Role,
+        OwnershipShare = request.OwnershipShare
+    };
 
     [HttpGet("{buildingId}/keys")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
@@ -209,7 +225,6 @@ public class BuildingsController : ControllerBase
         return Ok(keys);
     }
 
-    /// <summary>Keys past their expected return (UC-010 "keys due").</summary>
     [HttpGet("{buildingId}/keys/overdue")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<KeyInfo>>> GetOverdueKeys(string buildingId) =>
@@ -225,13 +240,26 @@ public class BuildingsController : ControllerBase
         {
             Id = Guid.NewGuid(),
             Type = request.KeyType,
+            UnitNumber = request.UnitNumber,
             Description = request.Description,
-            Identifier = request.Identifier ?? Guid.NewGuid().ToString()[..8],
+            Identifier = string.IsNullOrWhiteSpace(request.Identifier) ? Guid.NewGuid().ToString()[..8] : request.Identifier,
             Status = KeyStatus.Available
         };
         await grain.AddKeyAsync(key);
         return StatusCode(StatusCodes.Status201Created);
     }
+
+    [HttpPut("{buildingId}/keys/{keyId:guid}/status")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<KeyInfo>> SetKeyStatus(string buildingId, Guid keyId, [FromBody] KeyStatusRequest request) =>
+        Ok(await _grainFactory.GetGrain<IBuildingGrain>(buildingId).SetKeyStatusAsync(keyId, request.Status, request.Note));
+
+    [HttpGet("{buildingId}/keys/{keyId:guid}/history")]
+    [Authorize(Policy = AuthPolicies.ManageOnly)]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<List<KeyCheckoutRecord>>> GetKeyHistory(string buildingId, Guid keyId) =>
+        Ok(await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetKeyHistoryAsync(keyId));
 
     [HttpPost("{buildingId}/keys/{keyId}/checkout")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
@@ -267,25 +295,35 @@ public class BuildingsController : ControllerBase
     public async Task<ActionResult<WorkOrderInfo>> CreateWorkOrder(string buildingId, [FromBody] CreateWorkOrderRequest request)
     {
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
+        var residents = await grain.GetResidentsAsync();
 
-        // Only managers may attribute a request to a specific resident; when
-        // nobody is named, the reporter is the resident matching the caller's
-        // account email (UC-003: residents report their own requests).
-        if (request.ReportedByResidentId == Guid.Empty || !AuthPolicies.IsManager(User))
+        ResidentInfo? reporter;
+        string? reporterName;
+        if (request.ReportedByResidentId != Guid.Empty && IsManager())
+        {
+            reporter = residents.FirstOrDefault(r => r.Id == request.ReportedByResidentId)
+                ?? throw new ArgumentException("The selected resident is not registered in this building.");
+            reporterName = $"{reporter.FirstName} {reporter.LastName}";
+        }
+        else
         {
             var email = User.FindFirst("email")?.Value;
-            var reporter = (await grain.GetResidentsAsync())
+            reporter = string.IsNullOrEmpty(email) ? null : residents
                 .FirstOrDefault(r => string.Equals(r.Email?.Trim(), email, StringComparison.OrdinalIgnoreCase));
-            if (reporter is null)
+            if (reporter is null && !IsManager())
             {
                 throw new ArgumentException(
                     "No resident of this building is registered with your account email; ask the manager to record you first.");
             }
 
-            request = request with { ReportedByResidentId = reporter.Id };
+            reporterName = UserDisplayName();
         }
 
-        var result = await grain.CreateWorkOrderAsync(request);
+        var result = await grain.CreateWorkOrderAsync(request with
+        {
+            ReportedByResidentId = reporter?.Id ?? Guid.Empty,
+            ReportedByName = reporterName
+        });
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
@@ -300,7 +338,7 @@ public class BuildingsController : ControllerBase
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
         var before = (await grain.GetWorkOrdersAsync()).FirstOrDefault(w => w.Id == workOrderId)
             ?? throw new KeyNotFoundException($"Work order '{workOrderId}' not found");
-        var result = await grain.UpdateWorkOrderStatusAsync(workOrderId, request.Status, request.Notes);
+        var result = await grain.UpdateWorkOrderStatusAsync(workOrderId, request.Status, request.Notes, UserDisplayName());
 
         if (before.Status != result.Status)
         {
@@ -317,6 +355,9 @@ public class BuildingsController : ControllerBase
 
         return Ok(result);
     }
+
+    private string? UserDisplayName() =>
+        User.FindFirst("name")?.Value is { Length: > 0 } name ? name : User.FindFirst("email")?.Value;
 
     [HttpGet("{buildingId}/announcements")]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
@@ -512,19 +553,35 @@ public class BuildingsController : ControllerBase
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult> SetFeeStructure(string buildingId, [FromBody] FeeStructureRequest request)
     {
+        var now = DateTime.UtcNow;
+        var effectiveFrom = now;
+        if (request.EffectiveFrom is { } requested)
+        {
+            effectiveFrom = DateTime.SpecifyKind(requested.Date, DateTimeKind.Utc);
+            if (effectiveFrom < now.Date)
+                throw new ArgumentException("A fee cannot be backdated; it can start today or later.");
+            if (effectiveFrom == now.Date)
+                effectiveFrom = now;
+        }
+
         var grain = _grainFactory.GetGrain<IBuildingGrain>(buildingId);
         var fee = new FeeStructureInfo
         {
             Name = request.Name,
             AmountPerM2 = request.AmountPerM2,
             FixedAmount = request.FixedAmount,
-            EffectiveFrom = DateTime.UtcNow
+            EffectiveFrom = effectiveFrom
         };
         await grain.SetFeeStructureAsync(fee);
         return StatusCode(StatusCodes.Status201Created);
     }
 
-        [HttpGet("{buildingId}/access")]
+    [HttpGet("{buildingId}/finance/fee-structures")]
+    [Authorize(Policy = AuthPolicies.BuildingAccess)]
+    public async Task<ActionResult<List<FeeStructureInfo>>> GetFeeStructures(string buildingId) =>
+        Ok(await _grainFactory.GetGrain<IBuildingGrain>(buildingId).GetFeeStructuresAsync());
+
+    [HttpGet("{buildingId}/access")]
     [Authorize(Policy = AuthPolicies.ManageOnly)]
     [Authorize(Policy = AuthPolicies.BuildingAccess)]
     public async Task<ActionResult<IEnumerable<BuildingMember>>> GetAccess(string buildingId)
@@ -691,6 +748,17 @@ public record KeyInfoRequest
 
     [MaxLength(100)]
     public string? Identifier { get; init; }
+
+    [MaxLength(20)]
+    public string? UnitNumber { get; init; }
+}
+
+public record KeyStatusRequest
+{
+    public KeyStatus Status { get; init; }
+
+    [MaxLength(500)]
+    public string? Note { get; init; }
 }
 
 public record KeyCheckinRequest
@@ -787,4 +855,6 @@ public record FeeStructureRequest
 
     [Range(0, 1_000_000)]
     public decimal? FixedAmount { get; init; }
+
+    public DateTime? EffectiveFrom { get; init; }
 }

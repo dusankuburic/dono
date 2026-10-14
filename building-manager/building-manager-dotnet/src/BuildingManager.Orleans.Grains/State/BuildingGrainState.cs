@@ -40,6 +40,7 @@ public class KeyState
     [Id(5)] public string? Description { get; set; }
     [Id(6)] public KeyCheckoutState? CurrentCheckout { get; set; }
     [Id(7)] public List<KeyCheckoutState> CheckoutHistory { get; set; } = new();
+    [Id(8)] public string? StatusNote { get; set; }
 }
 
 [GenerateSerializer]
@@ -77,6 +78,17 @@ public class WorkOrderState
     [Id(13)] public decimal? ActualCost { get; set; }
     [Id(14)] public DateTime CreatedAt { get; set; }
     [Id(15)] public DateTime? CompletedAt { get; set; }
+    [Id(16)] public string? ReportedByName { get; set; }
+    [Id(17)] public List<WorkOrderNoteState> Notes { get; set; } = new();
+}
+
+[GenerateSerializer]
+public class WorkOrderNoteState
+{
+    [Id(0)] public DateTime At { get; set; }
+    [Id(1)] public string? AuthorName { get; set; }
+    [Id(2)] public WorkOrderStatus? Status { get; set; }
+    [Id(3)] public string? Text { get; set; }
 }
 
 [GenerateSerializer]

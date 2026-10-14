@@ -8,9 +8,9 @@
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
     <MudText Typo="Typo.h3">Residents</MudText>
-    @if (_canManage && _editing is null)
+    @if (_canManage && _buildingId is not null && _form is null && _loadError is null)
     {
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="StartAdd">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="@(() => StartForm(null))">
             Add resident
         </MudButton>
     }
@@ -28,70 +28,84 @@ else if (_loadError is not null)
 }
 else
 {
-    @if (_canManage && _editing is not null)
+    @if (_form is not null)
     {
-        <MudPaper Class="pa-4 mb-4" Elevation="4">
-            <MudText Typo="Typo.h6" Class="mb-2">@(_residentId is null ? "Add resident" : "Edit resident")</MudText>
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">@(_form.Id is null ? "New resident" : $"{_form.FirstName} {_form.LastName}")</MudText>
+            @if (_units.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    This building has no units yet. <MudLink Href="@($"/buildings/{_buildingId}")">Add units</MudLink> to register residents at them.
+                </MudAlert>
+            }
             <MudGrid>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudTextField @bind-Value="_firstName" Label="First name" MaxLength="100" Immediate="true" />
+                    <MudTextField @bind-Value="_form.FirstName" Label="First name" MaxLength="100" Immediate="true" />
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudTextField @bind-Value="_lastName" Label="Last name" MaxLength="100" Immediate="true" />
+                    <MudTextField @bind-Value="_form.LastName" Label="Last name" MaxLength="100" Immediate="true" />
                 </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" @bind-Value="_unitNumber" Label="Unit" Clearable="true">
+                <MudItem xs="6" md="3">
+                    <MudSelect T="string" @bind-Value="_form.UnitNumber" Label="Unit" Clearable="true">
                         @foreach (var unit in _units)
                         {
-                            <MudSelectItem Value="@unit.Number">@unit.Number</MudSelectItem>
+                            <MudSelectItem Value="@unit.Number">@unit.Number (floor @unit.Floor)</MudSelectItem>
                         }
                     </MudSelect>
                 </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="ResidentRole" @bind-Value="_role" Label="Role">
+                <MudItem xs="6" md="3">
+                    <MudSelect T="ResidentRole" @bind-Value="_form.Role" Label="Role">
                         @foreach (var role in Enum.GetValues<ResidentRole>())
                         {
-                            <MudSelectItem Value="@role">@BuildingLabels.ResidentRoleLabel(role)</MudSelectItem>
+                            <MudSelectItem Value="@role">@BuildingLabels.ResidentRole(role)</MudSelectItem>
                         }
                     </MudSelect>
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudTextField @bind-Value="_phone" Label="Phone" MaxLength="30" Immediate="true" />
+                    <MudTextField @bind-Value="_form.Phone" Label="Phone" MaxLength="30" InputType="InputType.Telephone" />
                 </MudItem>
                 <MudItem xs="12" sm="6" md="4">
-                    <MudTextField @bind-Value="_email" Label="Email (matches the resident's account)" MaxLength="200" Immediate="true" />
+                    <MudTextField @bind-Value="_form.Email" Label="Email" MaxLength="200" InputType="InputType.Email"
+                                  HelperText="Owners who sign in with this email see their unit's fees" />
                 </MudItem>
-                <MudItem xs="12" sm="6" md="2">
-                    <MudNumericField T="decimal?" @bind-Value="_ownershipShare" Label="Share %" Min="0" Max="100" />
-                </MudItem>
+                @if (_form.Role is ResidentRole.Owner or ResidentRole.CoOwner)
+                {
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudNumericField T="decimal?" @bind-Value="_form.OwnershipShare" Label="Share of the unit owned (%)" Min="0" Max="100"
+                                         HelperText="Leave empty for a sole owner" />
+                    </MudItem>
+                }
             </MudGrid>
             @if (_formError is not null)
             {
                 <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_formError</MudAlert>
             }
             <MudStack Row="true" Spacing="2" Class="mt-4">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SaveResident">Save</MudButton>
-                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => _editing = null)">Cancel</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="Save">Save</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => { _form = null; _formError = null; })">Cancel</MudButton>
             </MudStack>
         </MudPaper>
     }
 
-    @if (_error is not null)
-    {
-        <MudAlert Severity="Severity.Error" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
-    }
+    <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center" Class="mb-2" Style="flex-wrap: wrap;">
+        <MudTextField @bind-Value="_search" Placeholder="Search name, unit, phone or email" Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" Clearable="true" Style="min-width: 280px;" />
+        <MudSelect T="ResidentRole?" @bind-Value="_roleFilter" Label="Role" Clearable="true" Style="max-width: 200px;">
+            @foreach (var role in Enum.GetValues<ResidentRole>())
+            {
+                <MudSelectItem T="ResidentRole?" Value="@role">@BuildingLabels.ResidentRole(role)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">@Filtered.Count() of @_residents.Count</MudText>
+    </MudStack>
 
-    <MudTextField @bind-Value="_search" Label="Search" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                  Immediate="true" Class="mb-2" Style="max-width: 380px;" />
-
-    <MudTable Items="@FilteredResidents" Hover="true" Stripable="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
+    <MudTable Items="@Filtered" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
         <HeaderContent>
             <MudTh>Name</MudTh>
             <MudTh>Unit</MudTh>
             <MudTh>Role</MudTh>
             <MudTh>Phone</MudTh>
             <MudTh>Email</MudTh>
-            <MudTh>Share</MudTh>
             @if (_canManage)
             {
                 <MudTh></MudTh>
@@ -101,33 +115,43 @@ else
             <MudTd DataLabel="Name">@context.FirstName @context.LastName</MudTd>
             <MudTd DataLabel="Unit">@(context.UnitNumber ?? "-")</MudTd>
             <MudTd DataLabel="Role">
-                <MudChip Size="Size.Small">@BuildingLabels.ResidentRoleLabel(context.Role)</MudChip>
+                <MudChip Size="Size.Small">
+                    @BuildingLabels.ResidentRole(context.Role)@(context.OwnershipShare is { } share ? $" · {share:0.##}%" : "")
+                </MudChip>
             </MudTd>
             <MudTd DataLabel="Phone">
-                @if (!string.IsNullOrEmpty(context.Phone))
+                @if (context.Phone is not null)
                 {
-                    <MudLink Href="@($"tel:{context.Phone}")">@context.Phone</MudLink>
+                    <MudLink Href="@TelLink(context.Phone)">@context.Phone</MudLink>
                 }
                 else
                 {
-                    @("-")
+                    <span>-</span>
                 }
             </MudTd>
-            <MudTd DataLabel="Email">@(context.Email ?? "-")</MudTd>
-            <MudTd DataLabel="Share">@(context.OwnershipShare?.ToString("N2") ?? "-")%</MudTd>
+            <MudTd DataLabel="Email">
+                @if (context.Email is not null)
+                {
+                    <MudLink Href="@($"mailto:{context.Email}")">@context.Email</MudLink>
+                }
+                else
+                {
+                    <span>-</span>
+                }
+            </MudTd>
             @if (_canManage)
             {
                 <MudTd Style="text-align: right; white-space: nowrap;">
-                    <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="@_busy"
-                               OnClick="@(() => StartEdit(context))">Edit</MudButton>
-                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="@_busy"
-                               OnClick="@(() => Remove(context))">Remove</MudButton>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Title="Edit" Disabled="@_busy"
+                                   OnClick="@(() => StartForm(context))" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Logout" Size="Size.Small" Color="Color.Error" Title="Move out" Disabled="@_busy"
+                                   OnClick="@(() => MoveOut(context))" />
                 </MudTd>
             }
         </RowTemplate>
         <NoRecordsContent>
-            <MudTd Colspan="@(_canManage ? 7 : 6)" Class="pa-4" Align="Align.Center">
-                @(string.IsNullOrWhiteSpace(_search) ? "No active residents." : "No residents match the search.")
+            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">
+                @(_residents.Count == 0 ? "No active residents." : "Nobody matches the search.")
             </MudTd>
         </NoRecordsContent>
     </MudTable>
@@ -135,48 +159,53 @@ else
 
 @code {
     private string? _buildingId;
-    private bool _noBuildings;
-    private bool _canManage;
     private List<ResidentInfo> _residents = new();
     private List<UnitInfo> _units = new();
     private bool _loading = true;
-    private bool _busy;
-    private string? _error;
+    private bool _noBuildings;
     private string? _loadError;
-    private string _search = string.Empty;
+    private bool _canManage;
+    private bool _busy;
 
-    private bool? _editing;
-    private Guid? _residentId;
-    private string _firstName = string.Empty;
-    private string _lastName = string.Empty;
-    private string? _unitNumber;
-    private ResidentRole _role = ResidentRole.Owner;
-    private string? _phone;
-    private string? _email;
-    private decimal? _ownershipShare;
+    private string? _search;
+    private ResidentRole? _roleFilter;
+
+    private ResidentForm? _form;
     private string? _formError;
-
-    private List<ResidentInfo> FilteredResidents
-    {
-        get
-        {
-            var search = _search.Trim();
-            if (search.Length == 0)
-            {
-                return _residents;
-            }
-
-            return _residents.Where(r =>
-                r.FirstName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                r.LastName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                (r.UnitNumber?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (r.Phone?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (r.Email?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
-        }
-    }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
+
+    private sealed class ResidentForm
+    {
+        public Guid? Id { get; init; }
+        public string FirstName { get; set; } = "";
+        public string LastName { get; set; } = "";
+        public string? UnitNumber { get; set; }
+        public ResidentRole Role { get; set; } = ResidentRole.Owner;
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public decimal? OwnershipShare { get; set; }
+    }
+
+    private IEnumerable<ResidentInfo> Filtered => _residents
+        .Where(r => _roleFilter is null || r.Role == _roleFilter)
+        .Where(r => string.IsNullOrWhiteSpace(_search) || Matches(r, _search.Trim()));
+
+    private static bool Matches(ResidentInfo r, string term) =>
+        $"{r.FirstName} {r.LastName}".Contains(term, StringComparison.OrdinalIgnoreCase) ||
+        (r.UnitNumber?.Equals(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        PhoneMatches(r.Phone, term) ||
+        (r.Email?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private static bool PhoneMatches(string? phone, string term)
+    {
+        var digits = new string(term.Where(char.IsDigit).ToArray()).TrimStart('0');
+        return phone is not null && digits.Length >= 3 &&
+               new string(phone.Where(char.IsDigit).ToArray()).Contains(digits);
+    }
+
+    private static string TelLink(string phone) => "tel:" + new string(phone.Where(c => char.IsDigit(c) || c == '+').ToArray());
 
     protected override async Task OnInitializedAsync()
     {
@@ -185,18 +214,16 @@ else
             _canManage = UserRoles.CanManage((await AuthState).User);
         }
 
-        _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
-        if (_buildingId is null)
-        {
-            _noBuildings = true;
-            _loading = false;
-            return;
-        }
-
         try
         {
-            _residents = (await BuildingService.GetResidentsAsync(_buildingId)).ToList();
-            _units = (await BuildingService.GetUnitsAsync(_buildingId)).ToList();
+            _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+            if (_buildingId is null)
+            {
+                _noBuildings = true;
+                return;
+            }
+
+            await Load();
         }
         catch (Exception ex)
         {
@@ -208,68 +235,67 @@ else
         }
     }
 
-    private void StartAdd()
+    private async Task Load()
     {
-        _editing = true;
-        _residentId = null;
-        _firstName = _lastName = string.Empty;
-        _unitNumber = null;
-        _role = ResidentRole.Owner;
-        _phone = _email = null;
-        _ownershipShare = null;
-        _formError = null;
+        _residents = (await BuildingService.GetResidentsAsync(_buildingId!))
+            .OrderBy(r => r.UnitNumber is null)
+            .ThenBy(r => r.UnitNumber?.Length).ThenBy(r => r.UnitNumber)
+            .ThenBy(r => r.LastName)
+            .ToList();
+        _units = (await BuildingService.GetUnitsAsync(_buildingId!)).ToList();
     }
 
-    private void StartEdit(ResidentInfo resident)
+    private void StartForm(ResidentInfo? resident)
     {
-        _editing = true;
-        _residentId = resident.Id;
-        _firstName = resident.FirstName;
-        _lastName = resident.LastName;
-        _unitNumber = resident.UnitNumber;
-        _role = resident.Role;
-        _phone = resident.Phone;
-        _email = resident.Email;
-        _ownershipShare = resident.OwnershipShare;
         _formError = null;
+        _form = resident is null
+            ? new ResidentForm()
+            : new ResidentForm
+            {
+                Id = resident.Id,
+                FirstName = resident.FirstName,
+                LastName = resident.LastName,
+                UnitNumber = resident.UnitNumber,
+                Role = resident.Role,
+                Phone = resident.Phone,
+                Email = resident.Email,
+                OwnershipShare = resident.OwnershipShare
+            };
     }
 
-    private async Task SaveResident()
+    private async Task Save()
     {
-        _formError = null;
-        if (string.IsNullOrWhiteSpace(_firstName) || string.IsNullOrWhiteSpace(_lastName))
+        if (_form is null || _buildingId is null)
+            return;
+        if (string.IsNullOrWhiteSpace(_form.FirstName) || string.IsNullOrWhiteSpace(_form.LastName))
         {
-            _formError = "Enter the resident's first and last name.";
+            _formError = "Enter the first and last name.";
             return;
         }
 
         var request = new ResidentInfoRequest
         {
-            FirstName = _firstName.Trim(),
-            LastName = _lastName.Trim(),
-            UnitNumber = string.IsNullOrWhiteSpace(_unitNumber) ? null : _unitNumber,
-            Role = _role,
-            Phone = string.IsNullOrWhiteSpace(_phone) ? null : _phone.Trim(),
-            Email = string.IsNullOrWhiteSpace(_email) ? null : _email.Trim(),
-            OwnershipShare = _ownershipShare
+            FirstName = _form.FirstName.Trim(),
+            LastName = _form.LastName.Trim(),
+            UnitNumber = _form.UnitNumber,
+            Role = _form.Role,
+            Phone = string.IsNullOrWhiteSpace(_form.Phone) ? null : _form.Phone.Trim(),
+            Email = string.IsNullOrWhiteSpace(_form.Email) ? null : _form.Email.Trim(),
+            OwnershipShare = _form.Role is ResidentRole.Owner or ResidentRole.CoOwner ? _form.OwnershipShare : null
         };
 
         _busy = true;
+        _formError = null;
         try
         {
-            if (_residentId is { } id)
-            {
-                await BuildingService.UpdateResidentAsync(_buildingId!, id, request);
-                Snackbar.Add("Resident saved", Severity.Success);
-            }
+            if (_form.Id is { } id)
+                await BuildingService.UpdateResidentAsync(_buildingId, id, request);
             else
-            {
-                await BuildingService.AddResidentAsync(_buildingId!, request);
-                Snackbar.Add("Resident added", Severity.Success);
-            }
+                await BuildingService.AddResidentAsync(_buildingId, request);
 
-            _editing = null;
-            _residents = (await BuildingService.GetResidentsAsync(_buildingId!)).ToList();
+            Snackbar.Add($"{request.FirstName} {request.LastName} saved", Severity.Success);
+            _form = null;
+            await Load();
         }
         catch (Exception ex)
         {
@@ -281,28 +307,29 @@ else
         }
     }
 
-    private async Task Remove(ResidentInfo resident)
+    private async Task MoveOut(ResidentInfo resident)
     {
-        if (await DialogService.ShowMessageBox("Remove resident",
-                $"Remove {resident.FirstName} {resident.LastName} from the building? The record is kept in history.",
-                yesText: "Remove", cancelText: "Back") == true)
+        var confirmed = await DialogService.ShowMessageBox(
+            "Move out",
+            $"Mark {resident.FirstName} {resident.LastName} as moved out? They leave the directory but stay on record.",
+            yesText: "Move out", cancelText: "Cancel");
+        if (confirmed != true || _buildingId is null)
+            return;
+
+        _busy = true;
+        try
         {
-            _busy = true;
-            _error = null;
-            try
-            {
-                await BuildingService.RemoveResidentAsync(_buildingId!, resident.Id);
-                Snackbar.Add("Resident removed", Severity.Success);
-                _residents = (await BuildingService.GetResidentsAsync(_buildingId!)).ToList();
-            }
-            catch (Exception ex)
-            {
-                _error = ex.Message;
-            }
-            finally
-            {
-                _busy = false;
-            }
+            await BuildingService.MoveOutResidentAsync(_buildingId, resident.Id);
+            Snackbar.Add($"{resident.FirstName} {resident.LastName} moved out", Severity.Info);
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 }

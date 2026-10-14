@@ -7,10 +7,10 @@
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
     <MudText Typo="Typo.h3">Work Orders</MudText>
-    @if (_buildingId is not null && _composing is null)
+    @if (_buildingId is not null && _report is null && _loadError is null)
     {
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="StartCompose">
-            New request
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.ReportProblem" OnClick="StartReport">
+            Report a problem
         </MudButton>
     }
 </MudStack>
@@ -27,201 +27,298 @@ else if (_loadError is not null)
 }
 else
 {
-    @if (_composing is not null)
+    @if (_report is not null)
     {
-        <MudPaper Class="pa-4 mb-4" Elevation="4">
-            <MudText Typo="Typo.h6" Class="mb-2">New maintenance request</MudText>
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Report a problem</MudText>
             <MudGrid>
                 <MudItem xs="12" md="6">
-                    <MudTextField @bind-Value="_title" Label="Title" MaxLength="200" Counter="200" Immediate="true" />
+                    <MudTextField @bind-Value="_report.Title" Label="What is wrong?" MaxLength="200" Immediate="true"
+                                  Placeholder="e.g. Elevator stuck on the 3rd floor" />
                 </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="WorkOrderCategory" @bind-Value="_category" Label="Category">
+                <MudItem xs="6" md="3">
+                    <MudSelect T="WorkOrderCategory" @bind-Value="_report.Category" Label="Category">
                         @foreach (var category in Enum.GetValues<WorkOrderCategory>())
                         {
-                            <MudSelectItem Value="@category">@BuildingLabels.CategoryLabel(category)</MudSelectItem>
+                            <MudSelectItem Value="@category">@BuildingLabels.Category(category)</MudSelectItem>
                         }
                     </MudSelect>
                 </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="Priority" @bind-Value="_priority" Label="Urgency">
-                        @foreach (var priority in Enum.GetValues<Priority>())
-                        {
-                            <MudSelectItem Value="@priority">@BuildingLabels.PriorityLabel(priority).Text</MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="12">
-                    <MudTextField @bind-Value="_description" Label="Describe the problem" Lines="4" MaxLength="2000"
-                                  Counter="2000" Immediate="true" Variant="Variant.Outlined" />
-                </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" @bind-Value="_unit" Label="Unit (optional)" Clearable="true">
+                <MudItem xs="6" md="3">
+                    <MudSelect T="string" @bind-Value="_report.UnitNumber" Label="Unit (optional)" Clearable="true">
                         @foreach (var unit in _units)
                         {
                             <MudSelectItem Value="@unit.Number">@unit.Number</MudSelectItem>
                         }
                     </MudSelect>
                 </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_report.Description" Label="Details" Lines="4" MaxLength="2000" Counter="2000"
+                                  Variant="Variant.Outlined" Immediate="true"
+                                  Placeholder="Where exactly, since when, anything already tried" />
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudSelect T="Priority" @bind-Value="_report.Priority" Label="Urgency">
+                        @foreach (var priority in Enum.GetValues<Priority>())
+                        {
+                            <MudSelectItem Value="@priority">@BuildingLabels.Priority(priority).Text</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
                 @if (_canManage && _residents.Count > 0)
                 {
-                    <MudItem xs="12" sm="6" md="4">
-                        <MudSelect T="Guid" @bind-Value="_reportedById" Label="Reported by">
+                    <MudItem xs="12" md="5">
+                        <MudSelect T="Guid" @bind-Value="_report.ReportedById" Label="Reported by"
+                                   ToStringFunc="@ReporterText">
+                            <MudSelectItem Value="@Guid.Empty">Me</MudSelectItem>
                             @foreach (var resident in _residents)
                             {
-                                <MudSelectItem Value="@resident.Id">@BuildingLabels.Resident(resident)</MudSelectItem>
+                                <MudSelectItem Value="@resident.Id">@ReporterText(resident.Id)</MudSelectItem>
                             }
                         </MudSelect>
                     </MudItem>
                 }
-                <MudItem xs="12" sm="6" md="2">
-                    <MudCheckBox T="bool" @bind-Checked="_emergency" Label="Emergency" Color="Color.Error" />
-                </MudItem>
             </MudGrid>
-            @if (_priority == Priority.Emergency)
+            @if (_report.Priority == Priority.Emergency)
             {
                 <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">
-                    Emergencies must be resolved within 48 hours; the manager is notified immediately.
+                    Emergencies (flooding, gas, no power, people stuck) start the 48-hour intervention deadline.
+                    If anyone is in danger, call 112 first.
                 </MudAlert>
             }
-            @if (_formError is not null)
+            @if (_reportError is not null)
             {
-                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_formError</MudAlert>
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_reportError</MudAlert>
             }
             <MudStack Row="true" Spacing="2" Class="mt-4">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="Submit">Submit request</MudButton>
-                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => _composing = null)">Cancel</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SubmitReport">Send report</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => { _report = null; _reportError = null; })">Cancel</MudButton>
             </MudStack>
         </MudPaper>
     }
 
-    @if (_error is not null)
+    @if (_selected is not null)
     {
-        <MudAlert Severity="Severity.Error" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _error = null)">@_error</MudAlert>
+        <MudPaper Class="pa-4 mb-4" Elevation="2" Style="@(_selected.IsEmergency && BuildingLabels.IsOpen(_selected.Status) ? "border-left: 4px solid var(--mud-palette-error);" : "")">
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start">
+                <div>
+                    <MudText Typo="Typo.caption" Class="d-block" Color="Color.Secondary">@_selected.ReferenceNumber</MudText>
+                    <MudText Typo="Typo.h6">@_selected.Title</MudText>
+                </div>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Title="Close" OnClick="@(() => _selected = null)" />
+            </MudStack>
+
+            <MudStack Row="true" Spacing="1" Class="my-2" Style="flex-wrap: wrap;">
+                <MudChip Size="Size.Small" Color="@BuildingLabels.WorkOrderStatus(_selected.Status).Color">@BuildingLabels.WorkOrderStatus(_selected.Status).Text</MudChip>
+                <MudChip Size="Size.Small" Color="@BuildingLabels.Priority(_selected.Priority).Color">@BuildingLabels.Priority(_selected.Priority).Text</MudChip>
+                <MudChip Size="Size.Small">@BuildingLabels.Category(_selected.Category)</MudChip>
+                @if (_selected.UnitNumber is not null)
+                {
+                    <MudChip Size="Size.Small">Unit @_selected.UnitNumber</MudChip>
+                }
+            </MudStack>
+
+            @if (EmergencyText(_selected) is { } emergency)
+            {
+                <MudAlert Severity="@(emergency.Overdue ? Severity.Error : Severity.Warning)" Dense="true" Class="mb-2">@emergency.Text</MudAlert>
+            }
+
+            <MudText Typo="Typo.body2" Class="mb-1">
+                Reported @Local(_selected.CreatedAt)@(_selected.ReportedByName is null ? "" : $" by {_selected.ReportedByName}")
+                @if (_selected.CompletedAt is { } completed)
+                {
+                    <span> · completed @Local(completed)</span>
+                }
+            </MudText>
+            @if (!string.IsNullOrWhiteSpace(_selected.Description))
+            {
+                <MudText Typo="Typo.body1" Class="mb-3" Style="white-space: pre-line;">@_selected.Description</MudText>
+            }
+
+            <MudText Typo="Typo.subtitle2" Class="mt-2">History</MudText>
+            @if (_selected.Notes.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">No updates yet.</MudText>
+            }
+            else
+            {
+                @foreach (var note in _selected.Notes)
+                {
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Start" Class="my-1">
+                        <MudText Typo="Typo.caption" Class="d-block" Color="Color.Secondary" Style="min-width: 120px;">@Local(note.At)</MudText>
+                        <div>
+                            @if (note.Status is { } status)
+                            {
+                                <MudChip Size="Size.Small" Color="@BuildingLabels.WorkOrderStatus(status).Color">@BuildingLabels.WorkOrderStatus(status).Text</MudChip>
+                            }
+                            @if (note.Text is not null)
+                            {
+                                <span style="white-space: pre-line;">@note.Text</span>
+                            }
+                            @if (note.AuthorName is not null)
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block" Color="Color.Secondary">@note.AuthorName</MudText>
+                            }
+                        </div>
+                    </MudStack>
+                }
+            }
+
+            @if (_canManage && BuildingLabels.IsOpen(_selected.Status))
+            {
+                <MudDivider Class="my-3" />
+                <MudGrid>
+                    <MudItem xs="12" md="4">
+                        <MudSelect T="WorkOrderStatus" @bind-Value="_newStatus" Label="Status">
+                            @foreach (var status in Enum.GetValues<WorkOrderStatus>())
+                            {
+                                <MudSelectItem Value="@status">@BuildingLabels.WorkOrderStatus(status).Text</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="8">
+                        <MudTextField @bind-Value="_note" Label="Note for residents (optional)" MaxLength="1000" Immediate="true"
+                                      Placeholder="e.g. Plumber booked for Thursday morning" />
+                    </MudItem>
+                </MudGrid>
+                @if (_newStatus is WorkOrderStatus.Completed or WorkOrderStatus.Cancelled)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">A completed or cancelled work order can't be changed afterwards.</MudAlert>
+                }
+                @if (_updateError is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_updateError</MudAlert>
+                }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="@(_busy || !HasUpdate)" OnClick="SaveUpdate">
+                    @(_newStatus == _selected.Status ? "Add note" : "Update")
+                </MudButton>
+            }
+        </MudPaper>
     }
 
-    <MudButtonGroup Class="mb-4">
-        @foreach (var filter in FilterButtons)
-        {
-            <MudButton Variant="@(CurrentStatus == filter.Status ? Variant.Filled : Variant.Outlined)"
-                       Color="filter.Color" OnClick="@(() => SetStatus(filter.Status))">@filter.Text</MudButton>
-        }
-    </MudButtonGroup>
+    <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudSelect T="string" Value="_filter" ValueChanged="SetFilter" Label="Show" Style="max-width: 240px;">
+            <MudSelectItem Value="@("open")">Open</MudSelectItem>
+            <MudSelectItem Value="@("all")">All</MudSelectItem>
+            @foreach (var status in Enum.GetValues<WorkOrderStatus>())
+            {
+                <MudSelectItem Value="@status.ToString()">@BuildingLabels.WorkOrderStatus(status).Text</MudSelectItem>
+            }
+        </MudSelect>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">@Filtered.Count() work order(s)</MudText>
+    </MudStack>
 
-    <MudTable Items="@_workOrders" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@_loading">
+    <MudTable T="WorkOrderInfo" Items="@Filtered" Hover="true" Breakpoint="Breakpoint.Sm" Loading="@_loading"
+              OnRowClick="@(args => Select(args.Item))" RowStyleFunc="@RowStyle">
         <HeaderContent>
             <MudTh>Reference</MudTh>
-            <MudTh>Title</MudTh>
+            <MudTh>Problem</MudTh>
             <MudTh>Category</MudTh>
             <MudTh>Urgency</MudTh>
             <MudTh>Status</MudTh>
-            <MudTh>Created</MudTh>
-            @if (_canManage)
-            {
-                <MudTh></MudTh>
-            }
+            <MudTh>Reported</MudTh>
         </HeaderContent>
         <RowTemplate>
-            @{ var (priorityText, priorityColor) = BuildingLabels.PriorityLabel(context.Priority);
-               var (statusText, statusColor) = BuildingLabels.WorkOrderStatusLabel(context.Status); }
             <MudTd DataLabel="Reference">@context.ReferenceNumber</MudTd>
-            <MudTd DataLabel="Title">
+            <MudTd DataLabel="Problem">
                 @context.Title
-                @if (!string.IsNullOrEmpty(context.UnitNumber))
+                @if (context.UnitNumber is not null)
                 {
-                    <MudChip Size="Size.Small" Label="true" Class="ml-1">@context.UnitNumber</MudChip>
+                    <MudText Typo="Typo.caption" Class="d-block" Color="Color.Secondary">Unit @context.UnitNumber</MudText>
                 }
             </MudTd>
-            <MudTd DataLabel="Category">@BuildingLabels.CategoryLabel(context.Category)</MudTd>
+            <MudTd DataLabel="Category">@BuildingLabels.Category(context.Category)</MudTd>
             <MudTd DataLabel="Urgency">
-                <MudChip Color="@priorityColor" Size="Size.Small">@priorityText</MudChip>
+                <MudChip Size="Size.Small" Color="@BuildingLabels.Priority(context.Priority).Color">@BuildingLabels.Priority(context.Priority).Text</MudChip>
+                @if (EmergencyText(context) is { } emergency)
+                {
+                    <MudText Typo="Typo.caption" Class="d-block" Color="@(emergency.Overdue ? Color.Error : Color.Warning)">@emergency.Short</MudText>
+                }
             </MudTd>
             <MudTd DataLabel="Status">
-                <MudChip Color="@statusColor" Size="Size.Small">@statusText</MudChip>
+                <MudChip Size="Size.Small" Color="@BuildingLabels.WorkOrderStatus(context.Status).Color">@BuildingLabels.WorkOrderStatus(context.Status).Text</MudChip>
             </MudTd>
-            <MudTd DataLabel="Created">@context.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</MudTd>
-            @if (_canManage)
-            {
-                <MudTd Style="text-align: right;">
-                    @if (context.Status is not (WorkOrderStatus.Completed or WorkOrderStatus.Cancelled))
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="@_busy"
-                                   OnClick="@(() => StartStatusChange(context))">Update</MudButton>
-                    }
-                </MudTd>
-            }
+            <MudTd DataLabel="Reported">
+                @context.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")
+                @if (context.ReportedByName is not null)
+                {
+                    <MudText Typo="Typo.caption" Class="d-block" Color="Color.Secondary">@context.ReportedByName</MudText>
+                }
+            </MudTd>
         </RowTemplate>
         <NoRecordsContent>
-            <MudTd Colspan="@(_canManage ? 7 : 6)" Class="pa-4" Align="Align.Center">No work orders match this filter.</MudTd>
+            <MudTd Colspan="6" Class="pa-4" Align="Align.Center">
+                @(_workOrders.Count == 0 ? "No problems reported yet." : "No work orders match this filter.")
+            </MudTd>
         </NoRecordsContent>
     </MudTable>
-
-    @if (_statusChange is not null)
-    {
-        <MudPaper Class="pa-4 mb-4" Elevation="4">
-            <MudText Typo="Typo.h6" Class="mb-2">@_statusChange.ReferenceNumber: @_statusChange.Title</MudText>
-            <MudGrid>
-                <MudItem xs="12" sm="6" md="4">
-                    <MudSelect T="WorkOrderStatus" @bind-Value="_newStatus" Label="Status">
-                        @foreach (var status in Enum.GetValues<WorkOrderStatus>())
-                        {
-                            <MudSelectItem Value="@status">@BuildingLabels.WorkOrderStatusLabel(status).Text</MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="12" md="8">
-                    <MudTextField @bind-Value="_statusNotes" Label="Note for the resident (optional)" MaxLength="1000" Immediate="true" />
-                </MudItem>
-            </MudGrid>
-            @if (_formError is not null)
-            {
-                <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_formError</MudAlert>
-            }
-            <MudStack Row="true" Spacing="2" Class="mt-4">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SaveStatus">Save</MudButton>
-                <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="@(() => _statusChange = null)">Cancel</MudButton>
-            </MudStack>
-        </MudPaper>
-    }
 }
 
 @code {
     private string? _buildingId;
     private bool _noBuildings;
+    private string? _loadError;
+    private bool _loading = true;
     private bool _canManage;
+    private bool _busy;
     private List<WorkOrderInfo> _workOrders = new();
     private List<UnitInfo> _units = new();
     private List<ResidentInfo> _residents = new();
-    private bool _loading = true;
-    private bool _busy;
-    private string? _error;
-    private string? _loadError;
-    private WorkOrderStatus? CurrentStatus { get; set; }
+    private string _filter = "open";
 
-    private bool? _composing;
-    private string _title = string.Empty;
-    private string _description = string.Empty;
-    private WorkOrderCategory _category = WorkOrderCategory.Other;
-    private Priority _priority = Priority.Normal;
-    private string? _unit;
-    private Guid _reportedById;
-    private bool _emergency;
-    private string? _formError;
+    private ReportForm? _report;
+    private string? _reportError;
 
-    private WorkOrderInfo? _statusChange;
+    private WorkOrderInfo? _selected;
     private WorkOrderStatus _newStatus;
-    private string? _statusNotes;
-
-    private static readonly (WorkOrderStatus? Status, string Text, Color Color)[] FilterButtons =
-    {
-        (null, "All", Color.Default),
-        (WorkOrderStatus.New, "New", Color.Warning),
-        (WorkOrderStatus.InProgress, "In progress", Color.Info),
-        (WorkOrderStatus.Completed, "Completed", Color.Success)
-    };
+    private string? _note;
+    private string? _updateError;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
+
+    private sealed class ReportForm
+    {
+        public string Title { get; set; } = "";
+        public string Description { get; set; } = "";
+        public WorkOrderCategory Category { get; set; } = WorkOrderCategory.Other;
+        public Priority Priority { get; set; } = Priority.Normal;
+        public string? UnitNumber { get; set; }
+        public Guid ReportedById { get; set; }
+    }
+
+    private string ReporterText(Guid id) =>
+        _residents.FirstOrDefault(r => r.Id == id) is { } r
+            ? $"{r.FirstName} {r.LastName}" + (r.UnitNumber is null ? "" : $" (unit {r.UnitNumber})")
+            : "Me";
+
+    private IEnumerable<WorkOrderInfo> Filtered => _filter switch
+    {
+        "all" => _workOrders,
+        "open" => _workOrders.Where(w => BuildingLabels.IsOpen(w.Status)),
+        _ => Enum.TryParse<WorkOrderStatus>(_filter, out var status) ? _workOrders.Where(w => w.Status == status) : _workOrders
+    };
+
+    private bool HasUpdate => _selected is not null && (_newStatus != _selected.Status || !string.IsNullOrWhiteSpace(_note));
+
+    private static string Local(DateTime utc) => utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+
+    private static (string Text, string Short, bool Overdue)? EmergencyText(WorkOrderInfo w)
+    {
+        if (!w.IsEmergency || w.EmergencyDeadline is not { } deadline || !BuildingLabels.IsOpen(w.Status))
+            return null;
+
+        var overdue = deadline < DateTime.UtcNow;
+        var relative = BuildingLabels.Relative(deadline);
+        return overdue
+            ? ($"The 48-hour intervention deadline passed {relative} ({Local(deadline)}).", $"48 h passed {relative}", true)
+            : ($"Emergency: intervention required by {Local(deadline)} ({relative}).", $"due {relative}", false);
+    }
+
+    private string RowStyle(WorkOrderInfo w, int index) =>
+        (w.Id == _selected?.Id ? "background-color: var(--mud-palette-action-default-hover);" : "") +
+        (w.IsEmergency && BuildingLabels.IsOpen(w.Status) ? "border-left: 4px solid var(--mud-palette-error);" : "") +
+        "cursor: pointer;";
 
     protected override async Task OnInitializedAsync()
     {
@@ -230,22 +327,22 @@ else
             _canManage = UserRoles.CanManage((await AuthState).User);
         }
 
-        _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
-        if (_buildingId is null)
-        {
-            _noBuildings = true;
-            _loading = false;
-            return;
-        }
-
         try
         {
+            _buildingId = await BuildingSelection.GetSelectedBuildingIdAsync();
+            if (_buildingId is null)
+            {
+                _noBuildings = true;
+                return;
+            }
+
             await LoadWorkOrders();
+            _units = (await BuildingService.GetUnitsAsync(_buildingId)).ToList();
             if (_canManage)
             {
-                _residents = (await BuildingService.GetResidentsAsync(_buildingId)).ToList();
+                _residents = (await BuildingService.GetResidentsAsync(_buildingId))
+                    .OrderBy(r => r.LastName).ThenBy(r => r.FirstName).ToList();
             }
-            _units = (await BuildingService.GetUnitsAsync(_buildingId)).ToList();
         }
         catch (Exception ex)
         {
@@ -257,113 +354,92 @@ else
         }
     }
 
-    private void StartCompose()
-    {
-        _composing = true;
-        _title = _description = string.Empty;
-        _category = WorkOrderCategory.Other;
-        _priority = Priority.Normal;
-        _unit = null;
-        _reportedById = _canManage && _residents.Count > 0 ? _residents[0].Id : Guid.Empty;
-        _emergency = false;
-        _formError = null;
-    }
-
-    private async Task Submit()
-    {
-        _formError = null;
-        if (string.IsNullOrWhiteSpace(_title) || _description.Trim().Length < 10)
-        {
-            _formError = "Enter a title and a description of at least 10 characters.";
-            return;
-        }
-        if (_canManage && _reportedById == Guid.Empty)
-        {
-            _formError = "Choose who reported the request.";
-            return;
-        }
-
-        _busy = true;
-        try
-        {
-            var created = await BuildingService.CreateWorkOrderAsync(_buildingId!, new CreateWorkOrderRequest
-            {
-                Title = _title.Trim(),
-                Description = _description.Trim(),
-                Category = _category,
-                Priority = _priority,
-                UnitNumber = string.IsNullOrWhiteSpace(_unit) ? null : _unit,
-                ReportedByResidentId = _reportedById,
-                IsEmergency = _emergency
-            });
-            Snackbar.Add($"Request {created.ReferenceNumber} submitted", Severity.Success);
-            _composing = null;
-            await LoadWorkOrders();
-        }
-        catch (Exception ex)
-        {
-            _formError = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private void StartStatusChange(WorkOrderInfo workOrder)
-    {
-        _statusChange = workOrder;
-        _newStatus = workOrder.Status;
-        _statusNotes = null;
-        _formError = null;
-    }
-
-    private async Task SaveStatus()
-    {
-        if (_statusChange is null)
-        {
-            return;
-        }
-
-        _busy = true;
-        try
-        {
-            await BuildingService.UpdateWorkOrderStatusAsync(_buildingId!, _statusChange.Id, _newStatus,
-                string.IsNullOrWhiteSpace(_statusNotes) ? null : _statusNotes.Trim());
-            Snackbar.Add("Work order updated", Severity.Success);
-            _statusChange = null;
-            await LoadWorkOrders();
-        }
-        catch (Exception ex)
-        {
-            _formError = ex.Message;
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private async Task SetStatus(WorkOrderStatus? status)
-    {
-        CurrentStatus = status;
-        await LoadWorkOrders();
-    }
-
     private async Task LoadWorkOrders()
     {
-        if (_buildingId is null)
+        _workOrders = (await BuildingService.GetWorkOrdersAsync(_buildingId!)).ToList();
+        if (_selected is not null)
         {
+            _selected = _workOrders.FirstOrDefault(w => w.Id == _selected.Id);
+        }
+    }
+
+    private void SetFilter(string filter) => _filter = filter;
+
+    private void Select(WorkOrderInfo workOrder)
+    {
+        _selected = workOrder;
+        _newStatus = workOrder.Status;
+        _note = null;
+        _updateError = null;
+    }
+
+    private void StartReport()
+    {
+        _report = new ReportForm();
+        _reportError = null;
+    }
+
+    private async Task SubmitReport()
+    {
+        if (_report is null || _buildingId is null)
+            return;
+        if (string.IsNullOrWhiteSpace(_report.Title))
+        {
+            _reportError = "Describe the problem in a few words.";
             return;
         }
 
+        _busy = true;
+        _reportError = null;
         try
         {
-            _workOrders = (await BuildingService.GetWorkOrdersAsync(_buildingId, CurrentStatus)).ToList();
+            var created = await BuildingService.CreateWorkOrderAsync(_buildingId, new CreateWorkOrderRequest
+            {
+                Title = _report.Title.Trim(),
+                Description = _report.Description.Trim(),
+                Category = _report.Category,
+                Priority = _report.Priority,
+                UnitNumber = _report.UnitNumber,
+                ReportedByResidentId = _report.ReportedById,
+                IsEmergency = _report.Priority == Priority.Emergency
+            });
+            Snackbar.Add($"Reported as {created.ReferenceNumber}", Severity.Success);
+            _report = null;
+            await LoadWorkOrders();
+            Select(_workOrders.FirstOrDefault(w => w.Id == created.Id) ?? created);
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            _reportError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveUpdate()
+    {
+        if (_selected is null || _buildingId is null)
+            return;
+
+        _busy = true;
+        _updateError = null;
+        try
+        {
+            var updated = await BuildingService.UpdateWorkOrderStatusAsync(
+                _buildingId, _selected.Id, _newStatus, string.IsNullOrWhiteSpace(_note) ? null : _note.Trim());
+            Snackbar.Add($"{updated.ReferenceNumber} updated", Severity.Success);
+            await LoadWorkOrders();
+            Select(_workOrders.FirstOrDefault(w => w.Id == updated.Id) ?? updated);
+        }
+        catch (Exception ex)
+        {
+            _updateError = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 }

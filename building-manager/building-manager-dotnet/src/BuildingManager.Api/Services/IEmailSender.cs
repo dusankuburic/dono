@@ -7,6 +7,30 @@ public interface IEmailSender
     Task SendPasswordResetEmailAsync(string email, string resetToken);
 }
 
+public class UnconfiguredEmailSender : IEmailSender
+{
+    private readonly ILogger<UnconfiguredEmailSender> _logger;
+
+    public UnconfiguredEmailSender(ILogger<UnconfiguredEmailSender> logger)
+    {
+        _logger = logger;
+    }
+
+    public Task SendAsync(string toEmail, string subject, string plainBody, string? htmlBody = null)
+    {
+        _logger.LogWarning(
+            "Email '{Subject}' to {Email} was not sent: no email sender is configured.", subject, toEmail);
+        return Task.CompletedTask;
+    }
+
+    public Task SendPasswordResetEmailAsync(string email, string resetToken)
+    {
+        _logger.LogWarning(
+            "Password reset requested for {Email}, but no email sender is configured; nothing was sent.", email);
+        return Task.CompletedTask;
+    }
+}
+
 public class DevLoggingEmailSender : IEmailSender
 {
     private readonly ILogger<DevLoggingEmailSender> _logger;

@@ -35,6 +35,8 @@ public class SchedulerGrain : Grain, ISchedulerGrain, IRemindable
     public Task ReceiveReminder(string reminderName, TickStatus status) =>
         reminderName == SweepReminder ? RunSweepAsync() : Task.CompletedTask;
 
+    public Task EnsureScheduledAsync() => Task.CompletedTask;
+
     public async Task RunSweepAsync()
     {
         var now = DateTime.UtcNow;

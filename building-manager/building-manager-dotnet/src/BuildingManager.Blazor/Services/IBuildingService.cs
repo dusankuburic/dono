@@ -8,19 +8,29 @@ public interface IBuildingService
     Task<List<BuildingSummary>> GetBuildingsAsync();
     Task<BuildingSummary?> GetBuildingAsync(string buildingId);
     Task InitializeBuildingAsync(string buildingId, BuildingInfoRequest info);
-    Task SetFeeStructureAsync(string buildingId, string name, decimal amountPerM2, decimal? fixedAmount);
+    Task<BuildingInfo> GetBuildingInfoAsync(string buildingId);
+    Task UpdateBuildingAsync(string buildingId, BuildingInfoRequest info);
+
+    Task SetFeeStructureAsync(string buildingId, string name, decimal amountPerM2, decimal? fixedAmount, DateTime? effectiveFrom = null);
+    Task<List<FeeStructureInfo>> GetFeeStructuresAsync(string buildingId);
+
     Task<IEnumerable<UnitInfo>> GetUnitsAsync(string buildingId);
+
     Task AddUnitAsync(string buildingId, UnitInfoRequest unit);
     Task RemoveUnitAsync(string buildingId, string unitNumber);
+
     Task<IEnumerable<ResidentInfo>> GetResidentsAsync(string buildingId);
     Task AddResidentAsync(string buildingId, ResidentInfoRequest resident);
     Task UpdateResidentAsync(string buildingId, Guid residentId, ResidentInfoRequest resident);
-    Task RemoveResidentAsync(string buildingId, Guid residentId);
+    Task MoveOutResidentAsync(string buildingId, Guid residentId);
+
     Task<IEnumerable<KeyInfo>> GetKeysAsync(string buildingId);
-    Task<List<KeyInfo>> GetOverdueKeysAsync(string buildingId);
-    Task<KeyInfo> AddKeyAsync(string buildingId, KeyType type, string? identifier, string? description);
-    Task<KeyInfo> CheckoutKeyAsync(string buildingId, Guid keyId, string recipientName, RecipientType recipientType, string purpose, DateTime expectedReturnUtc);
-    Task<KeyInfo> CheckinKeyAsync(string buildingId, Guid keyId, string condition, string? notes);
+    Task AddKeyAsync(string buildingId, KeyInfoRequest key);
+    Task CheckoutKeyAsync(string buildingId, Guid keyId, KeyCheckoutRequest checkout);
+    Task CheckinKeyAsync(string buildingId, Guid keyId, string? condition, string? notes);
+    Task SetKeyStatusAsync(string buildingId, Guid keyId, KeyStatus status, string? note);
+    Task<List<KeyCheckoutRecord>> GetKeyHistoryAsync(string buildingId, Guid keyId);
+
     Task<IEnumerable<WorkOrderInfo>> GetWorkOrdersAsync(string buildingId, WorkOrderStatus? status = null);
     Task<WorkOrderInfo> CreateWorkOrderAsync(string buildingId, CreateWorkOrderRequest request);
     Task<WorkOrderInfo> UpdateWorkOrderStatusAsync(string buildingId, Guid workOrderId, WorkOrderStatus status, string? notes);
@@ -67,4 +77,12 @@ public record ResidentInfoRequest
     public string? Phone { get; init; }
     public ResidentRole Role { get; init; }
     public decimal? OwnershipShare { get; init; }
+}
+
+public record KeyInfoRequest
+{
+    public KeyType KeyType { get; init; }
+    public string? Identifier { get; init; }
+    public string? Description { get; init; }
+    public string? UnitNumber { get; init; }
 }

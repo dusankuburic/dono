@@ -22,13 +22,21 @@ public class UserSessionGrain : Grain, IUserSessionGrain
         await _state.WriteStateAsync();
     }
 
-    public Task<bool> ValidateSessionAsync()
+    public async Task<bool> ValidateSessionAsync()
     {
         var session = _state.State.Session;
-        var valid = session is not null
-            && !_state.State.IsTerminated
-            && session.ExpiresAt > DateTime.UtcNow;
-        return Task.FromResult(valid);
+        if (session is null)
+        {
+            return false;
+        }
+
+        if (_state.State.IsTerminated || session.ExpiresAt <= DateTime.UtcNow)
+        {
+            await _state.ClearStateAsync();
+            return false;
+        }
+
+        return true;
     }
 
     public Task<UserSession> GetSessionAsync()
@@ -85,13 +93,12 @@ public class UserSessionGrain : Grain, IUserSessionGrain
 
     public async Task TerminateAsync()
     {
-        if (_state.State.Session is null || _state.State.IsTerminated)
+        if (_state.State.Session is null)
         {
             return;
         }
 
-        _state.State.IsTerminated = true;
-        await _state.WriteStateAsync();
+        await _state.ClearStateAsync();
     }
 
     public async Task SetRefreshTokenAsync(string refreshTokenHash)

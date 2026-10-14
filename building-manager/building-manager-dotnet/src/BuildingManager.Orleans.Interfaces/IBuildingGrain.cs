@@ -7,6 +7,7 @@ public interface IBuildingGrain : IGrainWithStringKey
 {
     Task<BuildingSummary> GetSummaryAsync();
     Task InitializeAsync(BuildingInfo info);
+    Task<BuildingInfo> GetInfoAsync();
     Task UpdateInfoAsync(BuildingInfo info);
 
     Task<UnitInfo> GetUnitAsync(string number);
@@ -16,6 +17,7 @@ public interface IBuildingGrain : IGrainWithStringKey
 
     Task<IEnumerable<ResidentInfo>> GetResidentsAsync();
     Task AddResidentAsync(ResidentInfo resident);
+    Task UpdateResidentAsync(ResidentInfo resident);
     Task RemoveResidentAsync(Guid residentId);
 
     Task<IEnumerable<KeyInfo>> GetAllKeysAsync();
@@ -23,42 +25,34 @@ public interface IBuildingGrain : IGrainWithStringKey
     Task<KeyInfo> CheckinKeyAsync(Guid keyId, string? condition, string? notes);
     Task<IEnumerable<KeyInfo>> GetOverdueKeysAsync();
     Task AddKeyAsync(KeyInfo key);
+    Task<KeyInfo> SetKeyStatusAsync(Guid keyId, KeyStatus status, string? note);
+    Task<List<KeyCheckoutRecord>> GetKeyHistoryAsync(Guid keyId);
 
     Task<IEnumerable<WorkOrderInfo>> GetWorkOrdersAsync(WorkOrderStatus? status = null);
     Task<WorkOrderInfo> CreateWorkOrderAsync(CreateWorkOrderRequest request);
-    Task<WorkOrderInfo> UpdateWorkOrderStatusAsync(Guid workOrderId, WorkOrderStatus status, string? notes);
+    Task<WorkOrderInfo> UpdateWorkOrderStatusAsync(Guid workOrderId, WorkOrderStatus status, string? notes,
+        string? authorName = null);
 
-        Task CreateAnnouncementAsync(AnnouncementInfo announcement);
-
-        Task<IEnumerable<AnnouncementInfo>> GetAnnouncementsAsync(int limit = 20);
-
-        Task<IEnumerable<AnnouncementInfo>> GetAnnouncementHistoryAsync();
-
+    Task CreateAnnouncementAsync(AnnouncementInfo announcement);
+    Task<IEnumerable<AnnouncementInfo>> GetAnnouncementsAsync(int limit = 20);
+    Task<IEnumerable<AnnouncementInfo>> GetAnnouncementHistoryAsync();
     Task SetAnnouncementPinnedAsync(Guid announcementId, bool pinned);
+    Task ArchiveAnnouncementAsync(Guid announcementId);
+    Task<List<AnnouncementInfo>> PublishDueAnnouncementsAsync();
 
-        Task ArchiveAnnouncementAsync(Guid announcementId);
-
-        Task<List<AnnouncementInfo>> PublishDueAnnouncementsAsync();
-
-        Task<IEnumerable<DocumentInfo>> GetDocumentsAsync();
-
+    Task<IEnumerable<DocumentInfo>> GetDocumentsAsync();
     Task<DocumentInfo> GetDocumentAsync(Guid documentId);
-
-        Task AddDocumentAsync(DocumentInfo document);
-
-        Task<DocumentInfo> RemoveDocumentAsync(Guid documentId);
+    Task AddDocumentAsync(DocumentInfo document);
+    Task<DocumentInfo> RemoveDocumentAsync(Guid documentId);
 
     Task<FinancialSummary> GetFinancialSummaryAsync(DateTime? from = null, DateTime? to = null);
     Task RecordPaymentAsync(PaymentInfo payment);
     Task RecordExpenseAsync(ExpenseInfo expense);
-
-        Task<MonthPaymentStatus> GetPaymentStatusAsync(int year, int month);
-
-        Task<MonthLedger> GetFinanceLedgerAsync(int year, int month);
-
-        Task<List<PaymentInfo>> GetUnitPaymentHistoryAsync(string unitNumber, int months = 12);
-
-        Task SetFeeStructureAsync(FeeStructureInfo fee);
+    Task<MonthPaymentStatus> GetPaymentStatusAsync(int year, int month);
+    Task<MonthLedger> GetFinanceLedgerAsync(int year, int month);
+    Task<List<PaymentInfo>> GetUnitPaymentHistoryAsync(string unitNumber, int months = 12);
+    Task SetFeeStructureAsync(FeeStructureInfo fee);
+    Task<List<FeeStructureInfo>> GetFeeStructuresAsync();
 }
 
 [GenerateSerializer]
@@ -126,6 +120,21 @@ public record KeyInfo
     [Id(4)] public KeyStatus Status { get; init; }
     [Id(5)] public string? Description { get; init; }
     [Id(6)] public KeyCheckoutInfo? CurrentCheckout { get; init; }
+    [Id(7)] public string? StatusNote { get; init; }
+}
+
+[GenerateSerializer]
+public record KeyCheckoutRecord
+{
+    [Id(0)] public string RecipientName { get; init; } = string.Empty;
+    [Id(1)] public string? RecipientPhone { get; init; }
+    [Id(2)] public RecipientType RecipientType { get; init; }
+    [Id(3)] public string Purpose { get; init; } = string.Empty;
+    [Id(4)] public DateTime CheckedOutAt { get; init; }
+    [Id(5)] public DateTime ExpectedReturn { get; init; }
+    [Id(6)] public DateTime? ReturnedAt { get; init; }
+    [Id(7)] public string? ReturnCondition { get; init; }
+    [Id(8)] public string? ReturnNotes { get; init; }
 }
 
 [GenerateSerializer]
@@ -166,6 +175,19 @@ public record WorkOrderInfo
     [Id(8)] public Guid ReportedByResidentId { get; init; }
     [Id(9)] public bool IsEmergency { get; init; }
     [Id(10)] public DateTime CreatedAt { get; init; }
+    [Id(11)] public string? ReportedByName { get; init; }
+    [Id(12)] public List<WorkOrderNoteInfo> Notes { get; init; } = new();
+    [Id(13)] public DateTime? CompletedAt { get; init; }
+    [Id(14)] public DateTime? EmergencyDeadline { get; init; }
+}
+
+[GenerateSerializer]
+public record WorkOrderNoteInfo
+{
+    [Id(0)] public DateTime At { get; init; }
+    [Id(1)] public string? AuthorName { get; init; }
+    [Id(2)] public WorkOrderStatus? Status { get; init; }
+    [Id(3)] public string? Text { get; init; }
 }
 
 [GenerateSerializer]
@@ -181,6 +203,7 @@ public record CreateWorkOrderRequest
     public string? UnitNumber { get; init; }
     [Id(5)] public Guid ReportedByResidentId { get; init; }
     [Id(6)] public bool IsEmergency { get; init; }
+    [Id(7)] public string? ReportedByName { get; init; }
 }
 
 [GenerateSerializer]
